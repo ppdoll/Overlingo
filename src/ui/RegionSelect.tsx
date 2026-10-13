@@ -1,0 +1,82 @@
+import { IconCrop, IconPlayerPlay, IconScreenShare } from '@tabler/icons-react';
+import { useState } from 'react';
+import type { OverlingoController } from '../app/controller';
+import { useStore } from '../state/store';
+import { openPip } from './pip';
+import { RegionPicker } from './RegionPicker';
+
+export function RegionSelect({ controller }: { controller: OverlingoController }) {
+  const ui = useStore(controller.ui);
+  const [error, setError] = useState<string | null>(null);
+
+  const start = () => {
+    if (!ui.region) {
+      setError('번역할 영역을 먼저 드래그해서 지정하세요');
+      return;
+    }
+    setError(null);
+    // Both need this click's user activation: the model download first, then the PiP window.
+    controller.startTranslating();
+    void openPip(controller);
+  };
+
+  return (
+    <main className="card stack">
+      <div className="row">
+        <span className="chip success">
+          <IconScreenShare size={14} />
+          {ui.demo ? '샘플 화면' : '화면 공유 중'}
+        </span>
+        <span className="muted small">번역할 부분을 드래그해서 지정하세요</span>
+        <button className="push" onClick={() => controller.stopSharing()}>
+          공유 중지
+        </button>
+      </div>
+
+      <RegionPicker
+        stream={ui.stream}
+        region={ui.region}
+        onChange={(region) => {
+          setError(null);
+          controller.setRegion(region);
+        }}
+      />
+
+      <div className="preview-row">
+        <div>
+          <p className="label">글자 인식 미리보기</p>
+          <div className="preview-box" aria-live="polite">
+            <PreviewText controller={controller} />
+          </div>
+        </div>
+        <div className="actions">
+          <button onClick={() => controller.setRegion(null)}>
+            <IconCrop size={18} />
+            다시 선택
+          </button>
+          <button className="primary" onClick={start}>
+            <IconPlayerPlay size={18} />
+            번역 시작
+          </button>
+        </div>
+      </div>
+      {error && <p className="field-error">{error}</p>}
+    </main>
+  );
+}
+
+function PreviewText({ controller }: { controller: OverlingoController }) {
+  const { ocr, region, previewText } = useStore(controller.ui);
+  if (ocr.state === 'error') return <span className="tone-bad">{ocr.message}</span>;
+  if (ocr.state === 'loading') {
+    return (
+      <span className="muted">
+        {ocr.message} {Math.round(ocr.progress * 100)}%
+      </span>
+    );
+  }
+  if (!region) return <span className="muted">영역을 지정하면 여기에 인식한 글자가 보여요</span>;
+  if (previewText === null) return <span className="muted">읽는 중…</span>;
+  if (previewText === '') return <span className="muted">글자를 찾지 못했어요. 영역을 글자에 맞게 다시 지정해 보세요</span>;
+  return <>{previewText}</>;
+}

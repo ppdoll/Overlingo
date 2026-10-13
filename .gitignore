@@ -1,0 +1,5 @@
+node_modules
+dist
+.vercel
+*.local
+.claude/settings.local.json
