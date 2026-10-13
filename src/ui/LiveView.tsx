@@ -3,6 +3,7 @@ import type { OverlingoController } from '../app/controller';
 import { AUTO } from '../core/languages';
 import type { LiveLine } from '../state/live';
 import { useStore } from '../state/store';
+import { ChatAside } from './ChatViews';
 import { Banner, formatTime, languageLabel } from './common';
 import { openPip, pipSupported } from './pip';
 import { RegionPicker } from './RegionPicker';
@@ -94,12 +95,16 @@ export function LiveView({ controller }: { controller: OverlingoController }) {
       <div className="live-grid">
         <section className="card">
           <p className="label">
-            캡처 미리보기
+            {settings.mode === 'chat' ? '말풍선 번역' : '캡처 미리보기'}
             <span className="push small">
               {stats.fps}fps · 인식 {stats.ocrMs}ms
             </span>
           </p>
-          <RegionPicker stream={ui.stream} region={ui.region} maxHeightVh={40} />
+          {settings.mode === 'chat' ? (
+            <ChatAside layout={live.layout} />
+          ) : (
+            <RegionPicker stream={ui.stream} region={ui.region} maxHeightVh={40} />
+          )}
         </section>
         <section className="card">
           {settings.mode === 'subtitle' && <CurrentSubtitle line={live.subtitle} />}

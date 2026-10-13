@@ -7,8 +7,7 @@ import type { Mode, NormRect } from '../core/types';
 const WIDTH = 1280;
 const HEIGHT = 720;
 const SUBTITLE_SECONDS = 3.5;
-const CHAT_SECONDS = 2.5;
-const VISIBLE_CHAT_LINES = 11;
+const CHAT_SECONDS = 3;
 
 const SUBTITLES = [
   "I never thought I'd see you here again.",
@@ -17,24 +16,38 @@ const SUBTITLES = [
   'Wait. Someone is coming.',
 ];
 
-const CHAT: [string, string][] = [
-  ['Kenji', '次のラウンド行く？'],
-  ['Mia', 'gg, that was close lol'],
-  ['Sam', 'wait for me, brb'],
-  ['Kenji', 'ナイス！'],
-  ['Mia', '3, 2, 1, go'],
-  ['Sam', '右から来てる！'],
-  ['Kenji', 'on it'],
-  ['Mia', '回復お願いします'],
-  ['Sam', 'omw, hold on'],
-  ['Kenji', 'あと一人だけ！'],
+/** `from: null` is you: your messages sit on the right, like in a real messenger. */
+const CHAT: { from: string | null; text: string }[] = [
+  { from: 'Kenji', text: '次のラウンド行く？' },
+  { from: 'Mia', text: 'gg, that was close lol. I really thought we were going to lose that one.' },
+  { from: null, text: 'wait for me, brb' },
+  { from: 'Sam', text: '右から来てる！気をつけて' },
+  { from: 'Mia', text: "Nice save!\n\nLet's group up near the bridge before the next wave." },
+  { from: null, text: 'omw, hold on' },
+  { from: 'Kenji', text: 'あと一人だけ！回復お願いします' },
+  { from: 'Sam', text: 'gg everyone, same time tomorrow?' },
 ];
+
+const NAME_COLORS: Record<string, string> = { Kenji: '#c0582b', Mia: '#2e7bb8', Sam: '#8a4bb0' };
+
+// The chat panel, Telegram style: bubbles on a patterned green background.
+const PANEL = { x: 880, y: 40, w: 360, h: 640, header: 36 };
+const BODY_TOP = PANEL.y + PANEL.header;
+const BODY_BOTTOM = PANEL.y + PANEL.h;
+const BUBBLE = { maxText: 250, padX: 12, padY: 10, line: 24, name: 22, gap: 10 };
 
 /** Regions that frame the demo's subtitle line and chat messages. */
 export const DEMO_REGIONS: Record<Mode, NormRect> = {
   subtitle: { x: 60 / WIDTH, y: 455 / HEIGHT, w: 760 / WIDTH, h: 70 / HEIGHT },
-  chat: { x: 884 / WIDTH, y: 92 / HEIGHT, w: 352 / WIDTH, h: 584 / HEIGHT },
+  chat: { x: PANEL.x / WIDTH, y: BODY_TOP / HEIGHT, w: PANEL.w / WIDTH, h: (BODY_BOTTOM - BODY_TOP) / HEIGHT },
 };
+
+/** Fixed doodle positions for the chat background. */
+const DOODLES = Array.from({ length: 70 }, (_, i) => ({
+  x: PANEL.x + ((i * 97) % PANEL.w),
+  y: BODY_TOP + ((i * 61) % (BODY_BOTTOM - BODY_TOP)),
+  r: 3 + (i % 4),
+}));
 
 export function startDemoStream(): { stream: MediaStream; stop: () => void } {
   const canvas = document.createElement('canvas');
@@ -96,21 +109,83 @@ function drawPlayer(ctx: CanvasRenderingContext2D, t: number) {
 }
 
 function drawChat(ctx: CanvasRenderingContext2D, t: number) {
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(880, 40, 360, 640);
   ctx.fillStyle = '#f1efe8';
-  ctx.fillRect(880, 40, 360, 36);
+  ctx.fillRect(PANEL.x, PANEL.y, PANEL.w, PANEL.header);
   ctx.fillStyle = '#5f5e5a';
   ctx.font = '18px sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText('채팅', 896, 64);
+  ctx.fillText('게임 채팅', PANEL.x + 16, PANEL.y + 24);
 
-  const total = 3 + Math.floor(t / CHAT_SECONDS);
-  const first = Math.max(0, total - VISIBLE_CHAT_LINES);
-  ctx.font = '22px sans-serif';
-  ctx.fillStyle = '#1f1e1c';
-  for (let i = first; i < total; i++) {
-    const [name, text] = CHAT[i % CHAT.length];
-    ctx.fillText(`[${name}] ${text}`, 896, 122 + (i - first) * 50);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(PANEL.x, BODY_TOP, PANEL.w, BODY_BOTTOM - BODY_TOP);
+  ctx.clip();
+  ctx.fillStyle = '#c9dcb4';
+  ctx.fillRect(PANEL.x, BODY_TOP, PANEL.w, BODY_BOTTOM - BODY_TOP);
+  ctx.strokeStyle = '#b4cb9c';
+  ctx.lineWidth = 2;
+  for (const d of DOODLES) {
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+    ctx.stroke();
   }
+
+  // Newest message at the bottom; older ones scroll off the top.
+  const total = 3 + Math.floor(t / CHAT_SECONDS);
+  let bottom = BODY_BOTTOM - 12;
+  for (let i = total - 1; i >= 0 && bottom > BODY_TOP; i--) {
+    bottom = drawBubble(ctx, CHAT[i % CHAT.length], bottom) - BUBBLE.gap;
+  }
+  ctx.restore();
+}
+
+/** Draws one message bubble ending at `bottom` and returns its top. */
+function drawBubble(ctx: CanvasRenderingContext2D, message: { from: string | null; text: string }, bottom: number): number {
+  ctx.font = '18px sans-serif';
+  const lines = wrap(ctx, message.text, BUBBLE.maxText);
+  const textWidth = Math.max(...lines.map((line) => ctx.measureText(line).width));
+  ctx.font = '600 16px sans-serif';
+  const nameWidth = message.from ? ctx.measureText(message.from).width : 0;
+  const width = Math.max(textWidth, nameWidth) + BUBBLE.padX * 2;
+  const height = BUBBLE.padY * 2 + (message.from ? BUBBLE.name : 0) + lines.length * BUBBLE.line;
+  const top = bottom - height;
+  const x = message.from ? PANEL.x + 12 : PANEL.x + PANEL.w - 12 - width;
+
+  ctx.fillStyle = message.from ? '#ffffff' : '#e1fec6';
+  ctx.beginPath();
+  ctx.roundRect(x, top, width, height, 12);
+  ctx.fill();
+
+  let y = top + BUBBLE.padY;
+  if (message.from) {
+    ctx.fillStyle = NAME_COLORS[message.from] ?? '#2e7bb8';
+    ctx.fillText(message.from, x + BUBBLE.padX, y + 16);
+    y += BUBBLE.name;
+  }
+  ctx.font = '18px sans-serif';
+  ctx.fillStyle = '#1f1e1c';
+  for (const line of lines) {
+    ctx.fillText(line, x + BUBBLE.padX, y + 18);
+    y += BUBBLE.line;
+  }
+  return top;
+}
+
+/** Wraps by words, or by characters for Japanese and Chinese. Blank lines between paragraphs stay. */
+function wrap(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const lines: string[] = [];
+  for (const paragraph of text.split('\n')) {
+    const tokens = /\s/.test(paragraph) ? paragraph.split(/(?<=\s)/) : [...paragraph];
+    let line = '';
+    for (const token of tokens) {
+      if (line && ctx.measureText(line + token).width > maxWidth) {
+        lines.push(line.trimEnd());
+        line = token.trimStart();
+      } else {
+        line += token;
+      }
+    }
+    lines.push(line.trimEnd());
+  }
+  return lines;
 }

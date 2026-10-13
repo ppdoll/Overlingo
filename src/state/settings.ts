@@ -3,6 +3,9 @@ import type { EngineId, Mode } from '../core/types';
 
 export type KeyStorage = 'session' | 'local';
 
+/** 'aside': each chat bubble next to its translation. 'list': translations only, as bubbles. */
+export type ChatView = 'aside' | 'list';
+
 export interface Settings {
   mode: Mode;
   /** BCP 47 code, or 'auto'. */
@@ -14,6 +17,7 @@ export interface Settings {
   keyStorage: KeyStorage;
   pipFontSize: number;
   showOriginal: boolean;
+  chatView: ChatView;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,6 +29,7 @@ export const DEFAULT_SETTINGS: Settings = {
   keyStorage: 'session',
   pipFontSize: 18,
   showOriginal: true,
+  chatView: 'aside',
 };
 
 const SETTINGS_KEY = 'overlingo.settings';

@@ -152,6 +152,27 @@ export function SettingsPanel({ controller }: { controller: OverlingoController 
             />
             원문 함께 보기
           </label>
+          <div className="radio-row small">
+            채팅 보기
+            <label>
+              <input
+                type="radio"
+                name="chat-view"
+                checked={settings.chatView === 'aside'}
+                onChange={() => controller.updateSettings({ chatView: 'aside' })}
+              />
+              나란히 (말풍선 옆에 번역)
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="chat-view"
+                checked={settings.chatView === 'list'}
+                onChange={() => controller.updateSettings({ chatView: 'list' })}
+              />
+              목록 (번역만)
+            </label>
+          </div>
         </section>
 
         <section>

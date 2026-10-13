@@ -12,3 +12,6 @@ export interface Rect {
 export type NormRect = Rect;
 
 export type EngineId = 'chrome' | 'claude' | 'none';
+
+/** Where a chat message sits: incoming bubbles on the left, your own on the right. */
+export type Align = 'left' | 'right' | 'full';

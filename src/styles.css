@@ -635,27 +635,92 @@ input[type='password'] {
   white-space: pre-wrap;
 }
 
-.pip-subtitle .source,
-.pip-chat .source {
+.pip-subtitle .source {
   font-size: 0.72em;
   color: var(--text-secondary);
   margin-top: 4px;
   white-space: pre-wrap;
 }
 
-.pip-chat li {
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
+.aside {
   list-style: none;
-}
-
-.pip-chat ul {
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.pip-chat li:last-child {
-  border-bottom: none;
+.aside-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.aside-row.right > :first-child {
+  order: 2;
+  justify-self: end;
+}
+
+.bubble-crop {
+  border-radius: 8px;
+  background-repeat: no-repeat;
+}
+
+.aside-source {
+  font-size: 0.8em;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.aside-translation {
+  background: var(--surface-muted);
+  border-radius: 10px;
+  padding: 6px 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.aside-row.right .aside-translation {
+  background: var(--accent-bg);
+}
+
+.bubbles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bubble {
+  max-width: 85%;
+  background: var(--surface-muted);
+  border-radius: 12px;
+  padding: 6px 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.bubble.right {
+  margin-left: auto;
+  background: var(--accent-bg);
+}
+
+.bubble .source {
+  font-size: 0.72em;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.pip-error {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
 }
 
 .pip-controls {

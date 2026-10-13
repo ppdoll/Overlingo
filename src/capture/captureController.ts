@@ -1,5 +1,5 @@
 import type { NormRect } from '../core/types';
-import type { FromWorker, GateConfig, ToWorker } from './protocol';
+import type { CapturedFrame, FromWorker, GateConfig, ToWorker } from './protocol';
 
 export function frameProcessingSupported(): boolean {
   return typeof MediaStreamTrackProcessor !== 'undefined';
@@ -7,7 +7,7 @@ export function frameProcessingSupported(): boolean {
 
 /** Hands a capture stream's frames to the capture worker and relays what it reports. */
 export class CaptureController {
-  onFrame: (image: Blob, forced: boolean) => void = () => {};
+  onFrame: (frame: CapturedFrame, forced: boolean) => void = () => {};
   onStats: (fps: number) => void = () => {};
   onEnded: () => void = () => {};
   onError: (message: string) => void = () => {};
@@ -53,7 +53,7 @@ export class CaptureController {
   private handle(message: FromWorker) {
     switch (message.type) {
       case 'frame':
-        this.onFrame(message.image, message.forced);
+        this.onFrame(message.frame, message.forced);
         break;
       case 'stats':
         this.onStats(message.fps);

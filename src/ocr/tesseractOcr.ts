@@ -1,7 +1,11 @@
 import { createWorker, OEM, PSM, type Worker } from 'tesseract.js';
+import type { OcrLine } from '../core/bubbles';
+import type { Rect } from '../core/types';
 
 export interface OcrResult {
   text: string;
+  /** Each recognized line with its position, for grouping chat lines into bubbles. */
+  lines: OcrLine[];
   confidence: number;
   ms: number;
 }
@@ -37,10 +41,20 @@ export class TesseractOcr {
     this.languages = key;
   }
 
-  async recognize(image: Blob): Promise<OcrResult> {
+  /** Reads the whole image, or only `area` of it. Line boxes are always in whole-image pixels. */
+  async recognize(image: Blob, area?: Rect): Promise<OcrResult> {
     const started = performance.now();
-    const { data } = await this.worker.recognize(image);
-    return { text: data.text, confidence: data.confidence, ms: performance.now() - started };
+    const options = area ? { rectangle: { left: area.x, top: area.y, width: area.w, height: area.h } } : {};
+    const { data } = await this.worker.recognize(image, options, { text: true, blocks: true });
+    const lines = (data.blocks ?? []).flatMap((block) =>
+      block.paragraphs.flatMap((paragraph) =>
+        paragraph.lines.map(({ text, bbox }) => ({
+          text,
+          box: { x: bbox.x0, y: bbox.y0, w: bbox.x1 - bbox.x0, h: bbox.y1 - bbox.y0 },
+        })),
+      ),
+    );
+    return { text: data.text, lines, confidence: data.confidence, ms: performance.now() - started };
   }
 
   async terminate(): Promise<void> {

@@ -1,6 +1,6 @@
 import { CaptureController, frameProcessingSupported } from '../capture/captureController';
 import { DEMO_REGIONS, startDemoStream } from '../capture/demoSource';
-import { GATE_PRESETS } from '../capture/protocol';
+import { GATE_PRESETS, type CapturedFrame } from '../capture/protocol';
 import { ocrLanguagesFor } from '../core/languages';
 import { cleanOcrText } from '../core/ocrText';
 import type { Mode, NormRect } from '../core/types';
@@ -261,7 +261,7 @@ export class OverlingoController {
       return false;
     }
     const capture = new CaptureController(stream, GATE_PRESETS[this.settings.get().mode]);
-    capture.onFrame = (image) => this.handleFrame(image);
+    capture.onFrame = (frame) => this.handleFrame(frame);
     capture.onStats = (fps) => this.live.set((s) => ({ ...s, stats: { ...s.stats, fps } }));
     capture.onEnded = () => this.stopSharing();
     capture.onError = (message) => this.setError(`화면을 읽지 못했어요: ${message}`);
@@ -271,9 +271,9 @@ export class OverlingoController {
     return true;
   }
 
-  private handleFrame(image: Blob) {
-    if (this.session) this.session.handleFrame(image);
-    else if (this.ui.get().view === 'select') void this.preview(image);
+  private handleFrame(frame: CapturedFrame) {
+    if (this.session) this.session.handleFrame(frame);
+    else if (this.ui.get().view === 'select') void this.preview(frame.image);
   }
 
   /** Shows what OCR reads in the region while the user is still choosing it. */
