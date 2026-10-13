@@ -1,0 +1,33 @@
+html,
+body {
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+/* Padding, line height and font must match the measure() in main.tsx. */
+.label {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  line-height: 1.4;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+  color: #ffffff;
+  background: rgba(24, 24, 22, 0.88);
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px rgba(55, 138, 221, 0.75);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  transition: opacity 150ms;
+}
+
+.label.subtitle {
+  text-align: center;
+  font-weight: 600;
+  background: rgba(12, 12, 11, 0.9);
+}
+
+/* The chat is scrolling; these positions are about to change. */
+.label.stale {
+  opacity: 0.2;
+}

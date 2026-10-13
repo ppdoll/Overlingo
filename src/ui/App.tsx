@@ -1,5 +1,6 @@
-import { IconLanguage, IconSettings } from '@tabler/icons-react';
+import { IconHelp, IconLanguage, IconSettings } from '@tabler/icons-react';
 import type { OverlingoController } from '../app/controller';
+import { GUIDE_URL, openExternal } from '../platform/desktop';
 import { useStore } from '../state/store';
 import { Banner } from './common';
 import { LiveView } from './LiveView';
@@ -17,7 +18,11 @@ export function App({ controller }: { controller: OverlingoController }) {
           <h1>Overlingo</h1>
           <p className="muted small">화면 속 채팅과 자막을 실시간으로 번역해요</p>
         </div>
-        <button className="push" onClick={() => controller.openSettings(true)}>
+        <button className="push" onClick={() => openExternal(GUIDE_URL)}>
+          <IconHelp size={18} />
+          사용 방법
+        </button>
+        <button onClick={() => controller.openSettings(true)}>
           <IconSettings size={18} />
           설정
         </button>

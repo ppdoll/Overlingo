@@ -1,5 +1,6 @@
-// Reads video frames off the main thread. A stream-driven loop keeps running when the tab is in
-// the background, where timers would be throttled to once a second or less.
+// Looks at captured frames off the main thread: either a screen share stream (web) or raw images
+// sent one by one (desktop). A stream-driven loop keeps running when the tab is in the
+// background, where timers would be throttled to once a second or less.
 import { findBubbleRegions } from '../core/bubbles';
 import { StabilityGate, toGray } from '../core/changeDetect';
 import { toPixelRect } from '../core/geometry';
@@ -25,7 +26,11 @@ let gateConfig: GateConfig | null = null;
 let gate: StabilityGate | null = null;
 let grabRequested = false;
 let lastLook = 0;
+let wasChanging = false;
 let signatureCanvas: OffscreenCanvas | null = null;
+let imageCanvas: OffscreenCanvas | null = null;
+let frames = 0;
+let statsSince = performance.now();
 
 scope.onmessage = ({ data: message }) => {
   switch (message.type) {
@@ -33,6 +38,13 @@ scope.onmessage = ({ data: message }) => {
       setGate(message.gate);
       region = message.region;
       void pump(message.readable);
+      break;
+    case 'start-images':
+      setGate(message.gate);
+      region = message.region;
+      break;
+    case 'image':
+      void lookAtImage(message.buffer, message.offset, message.width, message.height);
       break;
     case 'region':
       region = message.region;
@@ -59,52 +71,74 @@ function setGate(config: GateConfig) {
 async function pump(readable: ReadableStream<VideoFrame>) {
   const current = readable.getReader();
   reader = current;
-  let frames = 0;
-  let statsSince = performance.now();
   try {
     for (;;) {
       const { value: frame, done } = await current.read();
       if (done) break;
       try {
-        frames++;
-        const now = performance.now();
-        if (now - statsSince >= 1000) {
-          const fps = Math.round((frames * 1000) / (now - statsSince));
-          scope.postMessage({ type: 'stats', fps, width: frame.displayWidth, height: frame.displayHeight });
-          frames = 0;
-          statsSince = now;
-        }
-        if (!region || !gate || !gateConfig) continue;
-        if (!grabRequested && now - lastLook < gateConfig.intervalMs) continue;
-        lastLook = now;
-
-        const crop = toPixelRect(region, frame.displayWidth, frame.displayHeight);
-        if (crop.w < 4 || crop.h < 4) continue;
-        const forced = grabRequested;
-        grabRequested = false;
-        const changed = gate.push(signature(frame, crop), now);
-        if (changed || forced) {
-          scope.postMessage({ type: 'frame', frame: await capture(frame, crop, gateConfig.layout), forced });
-        }
+        await look(frame, frame.displayWidth, frame.displayHeight, false);
       } finally {
         frame.close();
       }
     }
     scope.postMessage({ type: 'ended' });
   } catch (error) {
-    scope.postMessage({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+    reportError(error);
   }
 }
 
+/** Desktop frames are already cut to the region and paced natively, so each one is looked at. */
+async function lookAtImage(buffer: ArrayBuffer, offset: number, width: number, height: number) {
+  try {
+    if (!imageCanvas || imageCanvas.width !== width || imageCanvas.height !== height) {
+      imageCanvas = new OffscreenCanvas(width, height);
+    }
+    const pixels = new Uint8ClampedArray(buffer, offset, width * height * 4);
+    imageCanvas.getContext('2d')!.putImageData(new ImageData(pixels, width, height), 0, 0);
+    await look(imageCanvas, width, height, true);
+  } catch (error) {
+    reportError(error);
+  } finally {
+    scope.postMessage({ type: 'processed' });
+  }
+}
+
+async function look(source: CanvasImageSource, width: number, height: number, paced: boolean) {
+  const now = performance.now();
+  countFrame(width, height, now);
+  if (!region || !gate || !gateConfig) return;
+  if (!paced && !grabRequested && now - lastLook < gateConfig.intervalMs) return;
+  lastLook = now;
+
+  const crop = toPixelRect(region, width, height);
+  if (crop.w < 4 || crop.h < 4) return;
+  const forced = grabRequested;
+  grabRequested = false;
+  const changed = gate.push(signature(source, crop), now);
+  if (gate.changing && !wasChanging) scope.postMessage({ type: 'motion' });
+  wasChanging = gate.changing;
+  if (changed || forced) {
+    scope.postMessage({ type: 'frame', frame: await capture(source, crop, gateConfig.layout), forced });
+  }
+}
+
+function countFrame(width: number, height: number, now: number) {
+  frames++;
+  if (now - statsSince < 1000) return;
+  scope.postMessage({ type: 'stats', fps: Math.round((frames * 1000) / (now - statsSince)), width, height });
+  frames = 0;
+  statsSince = now;
+}
+
 /** A small grayscale thumbnail of the region: cheap to compare every frame. */
-function signature(frame: VideoFrame, crop: Rect): Uint8Array {
+function signature(source: CanvasImageSource, crop: Rect): Uint8Array {
   const width = SIGNATURE_WIDTH;
   const height = Math.max(8, Math.min(96, Math.round((SIGNATURE_WIDTH * crop.h) / crop.w)));
   if (!signatureCanvas || signatureCanvas.width !== width || signatureCanvas.height !== height) {
     signatureCanvas = new OffscreenCanvas(width, height);
   }
   const ctx = signatureCanvas.getContext('2d', { willReadFrequently: true })!;
-  ctx.drawImage(frame, crop.x, crop.y, crop.w, crop.h, 0, 0, width, height);
+  ctx.drawImage(source, crop.x, crop.y, crop.w, crop.h, 0, 0, width, height);
   return toGray(ctx.getImageData(0, 0, width, height).data);
 }
 
@@ -112,7 +146,7 @@ function signature(frame: VideoFrame, crop: Rect): Uint8Array {
  * The region scaled so small screen text is legible to Tesseract, then cleaned up for OCR.
  * In layout mode the untouched picture and the chat bubbles in it come along too.
  */
-async function capture(frame: VideoFrame, crop: Rect, layout: boolean): Promise<CapturedFrame> {
+async function capture(source: CanvasImageSource, crop: Rect, layout: boolean): Promise<CapturedFrame> {
   const scale = Math.min(
     MAX_OCR_SCALE,
     Math.max(1, OCR_TARGET_WIDTH / crop.w),
@@ -123,7 +157,7 @@ async function capture(frame: VideoFrame, crop: Rect, layout: boolean): Promise<
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(frame, crop.x, crop.y, crop.w, crop.h, 0, 0, width, height);
+  ctx.drawImage(source, crop.x, crop.y, crop.w, crop.h, 0, 0, width, height);
   const image = ctx.getImageData(0, 0, width, height);
 
   // Both read the original colors, so they come before the OCR clean-up below.
@@ -133,4 +167,8 @@ async function capture(frame: VideoFrame, crop: Rect, layout: boolean): Promise<
   prepareForOcr(image);
   ctx.putImageData(image, 0, 0);
   return { image: await canvas.convertToBlob({ type: 'image/png' }), snapshot, width, height, bubbles };
+}
+
+function reportError(error: unknown) {
+  scope.postMessage({ type: 'error', message: error instanceof Error ? error.message : String(error) });
 }

@@ -5,8 +5,10 @@ import type { LiveLine } from '../state/live';
 import { useStore } from '../state/store';
 import { ChatAside } from './ChatViews';
 import { Banner, formatTime, languageLabel } from './common';
+import { isDesktop } from '../platform/desktop';
 import { openPip, pipSupported } from './pip';
 import { RegionPicker } from './RegionPicker';
+import { RegionStill } from './RegionSelect';
 
 export function LiveView({ controller }: { controller: OverlingoController }) {
   const ui = useStore(controller.ui);
@@ -27,6 +29,7 @@ export function LiveView({ controller }: { controller: OverlingoController }) {
           {languageLabel(settings.source)} → {languageLabel(settings.target)}
         </span>
         <span className="chip">번역 · {engine.label}</span>
+        {isDesktop && ui.overlayOn && <span className="chip success">오버레이 표시 중</span>}
         <div className="push actions">
           {running ? (
             <button className="icon" aria-label="일시정지" title="일시정지" onClick={() => controller.pause()}>
@@ -40,7 +43,7 @@ export function LiveView({ controller }: { controller: OverlingoController }) {
           <button className="icon" aria-label="영역 다시 지정" title="영역 다시 지정" onClick={() => controller.reselectRegion()}>
             <IconCrop size={18} />
           </button>
-          {pipSupported() && !ui.pipOpen && (
+          {!isDesktop && pipSupported() && !ui.pipOpen && (
             <button className="primary" onClick={() => void openPip(controller)}>
               <IconPictureInPicture size={18} />
               PiP 창 열기
@@ -48,7 +51,7 @@ export function LiveView({ controller }: { controller: OverlingoController }) {
           )}
           <button onClick={() => controller.stopSharing()}>
             <IconPlayerStop size={18} />
-            공유 중지
+            {isDesktop ? '그만두기' : '공유 중지'}
           </button>
         </div>
       </div>
@@ -78,10 +81,13 @@ export function LiveView({ controller }: { controller: OverlingoController }) {
       )}
       {engine.id !== wanted && (
         <Banner tone="warning">
-          {wanted === 'claude'
-            ? 'Claude 키가 등록되지 않아 '
-            : '이 브라우저는 내장 번역을 지원하지 않아 '}
-          {engine.id === 'none' ? '인식한 글자만 보여줘요.' : `${engine.label}을 대신 쓰고 있어요.`} 설정에서 바꿀 수 있어요.
+          {wanted === 'claude' || wanted === 'gemini'
+            ? `${wanted === 'claude' ? 'Claude' : 'Gemini'} 키가 등록되지 않아 `
+            : isDesktop
+              ? '데스크톱 앱은 Chrome 내장 번역을 쓸 수 없어 '
+              : '이 브라우저는 내장 번역을 지원하지 않아 '}
+          {engine.id === 'none' ? '인식한 글자만 보여줘요.' : `${engine.label}로 대신 번역하고 있어요.`} 설정에서 바꿀 수
+          있어요.
         </Banner>
       )}
 
@@ -102,6 +108,8 @@ export function LiveView({ controller }: { controller: OverlingoController }) {
           </p>
           {settings.mode === 'chat' ? (
             <ChatAside layout={live.layout} />
+          ) : isDesktop ? (
+            <RegionStill url={ui.regionPreviewUrl} maxHeightVh={40} />
           ) : (
             <RegionPicker stream={ui.stream} region={ui.region} maxHeightVh={40} />
           )}

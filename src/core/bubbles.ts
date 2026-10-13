@@ -14,6 +14,8 @@ export interface TextUnit {
   /** The bubble, or just the line when it isn't in a bubble. */
   box: Rect;
   align: Align;
+  /** Whether `box` is a detected bubble rather than a lone line. */
+  bubble: boolean;
 }
 
 /** Bubble detection runs on a grid about this wide, whatever the capture size. */
@@ -102,23 +104,28 @@ export function findBubbleRegions(rgba: Uint8ClampedArray, width: number, height
  * (plain chat windows, game chat) stay one unit each.
  */
 export function groupIntoUnits(lines: OcrLine[], bubbles: Rect[], imageWidth: number): TextUnit[] {
-  const units: { box: Rect; lines: OcrLine[] }[] = [];
-  const byBubble = new Map<number, { box: Rect; lines: OcrLine[] }>();
+  const units: { box: Rect; lines: OcrLine[]; bubble: boolean }[] = [];
+  const byBubble = new Map<number, { box: Rect; lines: OcrLine[]; bubble: boolean }>();
   for (const line of [...lines].sort((a, b) => a.box.y - b.box.y)) {
     const bubble = smallestContaining(bubbles, line.box);
     if (bubble === -1) {
-      units.push({ box: line.box, lines: [line] });
+      units.push({ box: line.box, lines: [line], bubble: false });
       continue;
     }
     let unit = byBubble.get(bubble);
     if (!unit) {
-      unit = { box: bubbles[bubble], lines: [] };
+      unit = { box: bubbles[bubble], lines: [], bubble: true };
       byBubble.set(bubble, unit);
       units.push(unit);
     }
     unit.lines.push(line);
   }
-  return units.map(({ box, lines: unitLines }) => ({ text: joinLines(unitLines), box, align: alignOf(box, imageWidth) }));
+  return units.map(({ box, lines: unitLines, bubble }) => ({
+    text: joinLines(unitLines),
+    box,
+    align: alignOf(box, imageWidth),
+    bubble,
+  }));
 }
 
 /** Wrapped lines become one sentence; a bigger gap is kept as a paragraph break. */

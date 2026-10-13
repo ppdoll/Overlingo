@@ -1,14 +1,16 @@
 import type { NormRect } from '../core/types';
+import type { FrameSource } from './frameSource';
 import type { CapturedFrame, FromWorker, GateConfig, ToWorker } from './protocol';
 
 export function frameProcessingSupported(): boolean {
   return typeof MediaStreamTrackProcessor !== 'undefined';
 }
 
-/** Hands a capture stream's frames to the capture worker and relays what it reports. */
-export class CaptureController {
+/** Web: hands a screen share stream's frames to the capture worker and relays what it reports. */
+export class StreamCapture implements FrameSource {
   onFrame: (frame: CapturedFrame, forced: boolean) => void = () => {};
   onStats: (fps: number) => void = () => {};
+  onMotion: () => void = () => {};
   onEnded: () => void = () => {};
   onError: (message: string) => void = () => {};
 
@@ -38,7 +40,6 @@ export class CaptureController {
     this.post({ type: 'gate', gate });
   }
 
-  /** Reads the region on the next frame even if nothing changed. */
   grab(): void {
     this.post({ type: 'grab' });
   }
@@ -58,11 +59,16 @@ export class CaptureController {
       case 'stats':
         this.onStats(message.fps);
         break;
+      case 'motion':
+        this.onMotion();
+        break;
       case 'ended':
         this.end();
         break;
       case 'error':
         this.onError(message.message);
+        break;
+      case 'processed':
         break;
     }
   }

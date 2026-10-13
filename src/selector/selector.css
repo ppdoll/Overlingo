@@ -1,0 +1,56 @@
+html,
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #000000;
+}
+
+.selector {
+  position: fixed;
+  inset: 0;
+  background-size: 100% 100%;
+  cursor: crosshair;
+  user-select: none;
+  touch-action: none;
+  font-family: system-ui, 'Segoe UI', 'Malgun Gothic', sans-serif;
+}
+
+.shade {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+/* The huge shadow dims everything outside the selection. */
+.selection {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid #378add;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.42);
+}
+
+.size {
+  position: absolute;
+  left: -2px;
+  bottom: calc(100% + 6px);
+  font-size: 12px;
+  color: #042c53;
+  background: #b5d4f4;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.hint {
+  position: absolute;
+  top: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 15px;
+  color: #ffffff;
+  background: rgba(20, 20, 20, 0.88);
+  pointer-events: none;
+  white-space: nowrap;
+}

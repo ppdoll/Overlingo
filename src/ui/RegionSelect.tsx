@@ -1,6 +1,7 @@
 import { IconCrop, IconPlayerPlay, IconScreenShare } from '@tabler/icons-react';
 import { useState } from 'react';
 import type { OverlingoController } from '../app/controller';
+import { isDesktop } from '../platform/desktop';
 import { useStore } from '../state/store';
 import { openPip } from './pip';
 import { RegionPicker } from './RegionPicker';
@@ -15,32 +16,42 @@ export function RegionSelect({ controller }: { controller: OverlingoController }
       return;
     }
     setError(null);
-    // Both need this click's user activation: the model download first, then the PiP window.
+    // On the web both need this click's user activation: the model download first, then PiP.
     controller.startTranslating();
-    void openPip(controller);
+    if (!isDesktop) void openPip(controller);
   };
 
+  const sourceLabel = ui.demo ? '샘플 화면' : isDesktop ? '지정한 영역' : '화면 공유 중';
+  const screen = ui.screenRegion;
   return (
     <main className="card stack">
       <div className="row">
         <span className="chip success">
           <IconScreenShare size={14} />
-          {ui.demo ? '샘플 화면' : '화면 공유 중'}
+          {sourceLabel}
         </span>
-        <span className="muted small">번역할 부분을 드래그해서 지정하세요</span>
+        <span className="muted small">
+          {isDesktop
+            ? screen && `${screen.width} × ${screen.height} 픽셀 · 맞으면 번역을 시작하세요`
+            : '번역할 부분을 드래그해서 지정하세요'}
+        </span>
         <button className="push" onClick={() => controller.stopSharing()}>
-          공유 중지
+          {isDesktop ? '그만두기' : '공유 중지'}
         </button>
       </div>
 
-      <RegionPicker
-        stream={ui.stream}
-        region={ui.region}
-        onChange={(region) => {
-          setError(null);
-          controller.setRegion(region);
-        }}
-      />
+      {isDesktop ? (
+        <RegionStill url={ui.regionPreviewUrl} maxHeightVh={50} />
+      ) : (
+        <RegionPicker
+          stream={ui.stream}
+          region={ui.region}
+          onChange={(region) => {
+            setError(null);
+            controller.setRegion(region);
+          }}
+        />
+      )}
 
       <div className="preview-row">
         <div>
@@ -50,10 +61,19 @@ export function RegionSelect({ controller }: { controller: OverlingoController }
           </div>
         </div>
         <div className="actions">
-          <button onClick={() => controller.setRegion(null)}>
-            <IconCrop size={18} />
-            다시 선택
-          </button>
+          {isDesktop ? (
+            !ui.demo && (
+              <button onClick={() => void controller.selectScreenRegion()}>
+                <IconCrop size={18} />
+                다시 지정
+              </button>
+            )
+          ) : (
+            <button onClick={() => controller.setRegion(null)}>
+              <IconCrop size={18} />
+              다시 선택
+            </button>
+          )}
           <button className="primary" onClick={start}>
             <IconPlayerPlay size={18} />
             번역 시작
@@ -63,6 +83,12 @@ export function RegionSelect({ controller }: { controller: OverlingoController }
       {error && <p className="field-error">{error}</p>}
     </main>
   );
+}
+
+/** Desktop: a still picture of the region picked on screen. */
+export function RegionStill({ url, maxHeightVh }: { url: string | null; maxHeightVh: number }) {
+  if (!url) return <p className="muted">영역을 불러오는 중…</p>;
+  return <img className="region-still" src={url} alt="지정한 화면 영역" style={{ maxHeight: `${maxHeightVh}vh` }} />;
 }
 
 function PreviewText({ controller }: { controller: OverlingoController }) {

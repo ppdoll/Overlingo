@@ -33,7 +33,11 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 const SETTINGS_KEY = 'overlingo.settings';
-const CLAUDE_KEY = 'overlingo.claudeKey';
+
+/** Engines that run on the user's own API key. */
+export type KeyProvider = 'claude' | 'gemini';
+export const KEY_PROVIDERS: readonly KeyProvider[] = ['gemini', 'claude'];
+const KEY_NAMES: Record<KeyProvider, string> = { claude: 'overlingo.claudeKey', gemini: 'overlingo.geminiKey' };
 
 // Storage can be missing or throw (private windows, blocked site data), so every access is
 // guarded and the app falls back to defaults.
@@ -57,13 +61,14 @@ export function saveSettings(settings: Settings): void {
 }
 
 /**
- * The Claude key never leaves this browser except in requests to Anthropic. By default it lives
- * in sessionStorage and disappears when the tab closes; "save on this device" uses localStorage.
+ * API keys never leave this browser except in requests to their own provider. By default they
+ * live in sessionStorage and disappear when the tab closes; "save on this device" uses
+ * localStorage.
  */
-export function loadClaudeKey(): string | null {
+export function loadApiKey(provider: KeyProvider): string | null {
   for (const storage of storages()) {
     try {
-      const key = storage.getItem(CLAUDE_KEY);
+      const key = storage.getItem(KEY_NAMES[provider]);
       if (key) return key;
     } catch {
       // Try the next storage.
@@ -72,19 +77,19 @@ export function loadClaudeKey(): string | null {
   return null;
 }
 
-export function saveClaudeKey(key: string, where: KeyStorage): void {
-  clearClaudeKey();
+export function saveApiKey(provider: KeyProvider, key: string, where: KeyStorage): void {
+  clearApiKey(provider);
   try {
-    (where === 'local' ? localStorage : sessionStorage).setItem(CLAUDE_KEY, key);
+    (where === 'local' ? localStorage : sessionStorage).setItem(KEY_NAMES[provider], key);
   } catch {
     // The key stays in memory for this session only.
   }
 }
 
-export function clearClaudeKey(): void {
+export function clearApiKey(provider: KeyProvider): void {
   for (const storage of storages()) {
     try {
-      storage.removeItem(CLAUDE_KEY);
+      storage.removeItem(KEY_NAMES[provider]);
     } catch {
       // Nothing stored there.
     }

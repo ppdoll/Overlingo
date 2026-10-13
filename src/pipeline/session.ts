@@ -136,7 +136,7 @@ export class TranslationSession {
    */
   private async chatUnits(result: { text: string; lines?: OcrLine[] }, frame: CapturedFrame): Promise<TextUnit[]> {
     if (!result.lines) {
-      return cleanOcrText(result.text).map((text) => ({ text, box: { x: 0, y: 0, w: 0, h: 0 }, align: 'full' }));
+      return cleanOcrText(result.text).map((text) => ({ text, box: { x: 0, y: 0, w: 0, h: 0 }, align: 'full', bubble: false }));
     }
     const lines = cleanLines(result.lines);
     const missed = frame.bubbles.filter(
@@ -146,7 +146,13 @@ export class TranslationSession {
       const reread = await this.reader.recognize(frame.image, bubble);
       lines.push(...cleanLines(reread.lines ?? []));
     }
-    return groupIntoUnits(lines, frame.bubbles, frame.width);
+    const units = groupIntoUnits(lines, frame.bubbles, frame.width);
+    // In a messenger with bubbles, text outside them is window chrome or a cut-off bubble.
+    const bubbles = units.filter((unit) => unit.bubble);
+    const messages = bubbles.length >= 2 ? bubbles : units;
+    // A bubble cut off by the region's edge reads as a fragment that changes while the chat
+    // scrolls. It was (or will be) read whole, so skip it.
+    return messages.filter((unit) => !(unit.bubble && touchesEdge(unit.box, frame)));
   }
 
   private readChat(units: TextUnit[], frame: CapturedFrame, startedAt: number) {
@@ -298,6 +304,12 @@ export class TranslationSession {
 
 function cleanLines(lines: OcrLine[]): OcrLine[] {
   return lines.flatMap((line) => cleanOcrText(line.text).slice(0, 1).map((text) => ({ text, box: line.box })));
+}
+
+/** Whether a bubble touches the top or bottom of the frame, so part of it may be cut off. */
+function touchesEdge(box: Rect, frame: CapturedFrame): boolean {
+  const margin = 2;
+  return box.y <= margin || box.y + box.h >= frame.height - margin;
 }
 
 /** Whether the center of `box` lies inside `area`. */

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Event and window access for the main, overlay, selector and demo windows",
+  "windows": ["main", "overlay", "demo", "selector-*"],
+  "permissions": ["core:default", "core:window:allow-minimize", "opener:default"]
+}

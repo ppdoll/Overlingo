@@ -1,0 +1,251 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f5f1;
+  --surface: #ffffff;
+  --surface-muted: #f1efe8;
+  --text: #1f1e1c;
+  --text-secondary: #5f5e5a;
+  --border: rgba(31, 30, 28, 0.12);
+  --accent: #185fa5;
+  --accent-bg: #e6f1fb;
+  --accent-border: #85b7eb;
+  --font: system-ui, -apple-system, 'Segoe UI', 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1b;
+    --surface: #262624;
+    --surface-muted: #30302e;
+    --text: #f1efe8;
+    --text-secondary: #b4b2a9;
+    --border: rgba(241, 239, 232, 0.12);
+    --accent: #85b7eb;
+    --accent-bg: #0c447c;
+    --accent-border: #378add;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+a {
+  color: var(--accent);
+}
+
+.top {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 20px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.button {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  text-decoration: none;
+  font-size: 15px;
+}
+
+.button.primary {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+main {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 0 16px 48px;
+}
+
+h1 {
+  font-size: 32px;
+  margin: 12px 0 8px;
+}
+
+h2 {
+  font-size: 24px;
+  margin: 56px 0 8px;
+}
+
+h3 {
+  font-size: 18px;
+  margin: 0 0 8px;
+}
+
+p {
+  margin: 0 0 10px;
+}
+
+.hero > p {
+  max-width: 720px;
+  color: var(--text-secondary);
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.choice span {
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.steps {
+  list-style: none;
+  counter-reset: step;
+  margin: 24px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.steps > li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 24px;
+  align-items: start;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.steps h3::before {
+  content: counter(step);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 10px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.steps > li.text-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.text-only .text {
+  max-width: 720px;
+}
+
+/* Never wider than the screenshot itself, so narrow ones (the PiP window) stay sharp. */
+.steps img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.steps figure {
+  margin: 0;
+}
+
+.steps figcaption {
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.text ul {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.tip,
+.note {
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+.note {
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.tips {
+  padding-left: 20px;
+}
+
+.tips li {
+  margin-bottom: 6px;
+}
+
+code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  background: var(--surface-muted);
+}
+
+kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.9em;
+  background: var(--surface-muted);
+}
+
+footer {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+
+@media (max-width: 760px) {
+  .steps > li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

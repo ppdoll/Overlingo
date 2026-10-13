@@ -366,6 +366,14 @@ input[type='password'] {
   object-fit: fill;
 }
 
+.region-still {
+  display: block;
+  max-width: 100%;
+  margin: 0 auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
 .region-box {
   position: absolute;
   border: 2px dashed #85b7eb;

@@ -1,4 +1,4 @@
-import { frameProcessingSupported } from '../capture/captureController';
+import { frameProcessingSupported } from '../capture/streamCapture';
 import { chromeTranslatorSupported } from '../translate/chromeEngine';
 
 export interface Environment {

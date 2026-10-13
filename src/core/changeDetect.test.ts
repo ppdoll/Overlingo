@@ -51,6 +51,17 @@ describe('StabilityGate', () => {
     expect(fired).toEqual([3000, 4050]);
   });
 
+  it('reports a change as pending until it has been read', () => {
+    const gate = new StabilityGate(options);
+    gate.push(A, 0);
+    gate.push(A, 250);
+    expect(gate.changing).toBe(false);
+    gate.push(B, 300);
+    expect(gate.changing).toBe(true);
+    gate.push(B, 550);
+    expect(gate.changing).toBe(false);
+  });
+
   it('starts over after reset', () => {
     const gate = new StabilityGate(options);
     gate.push(A, 0);

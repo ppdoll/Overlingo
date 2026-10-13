@@ -3,19 +3,44 @@ import { useEffect, useState } from 'react';
 import type { OverlingoController } from '../app/controller';
 import { LANGUAGES } from '../core/languages';
 import type { EngineId, Mode } from '../core/types';
+import { isDesktop, openExternal } from '../platform/desktop';
+import { KEY_PROVIDERS, type KeyProvider } from '../state/settings';
 import { useStore } from '../state/store';
 import { CLAUDE_LABEL } from '../translate/claude';
+import { GEMINI_KEY_URL } from '../translate/gemini';
 import { LanguagePicker } from './LanguagePicker';
 
+const PROVIDERS: Record<
+  KeyProvider,
+  { name: string; placeholder: string; prefix: string; keyUrl: string; hint: string; note?: string }
+> = {
+  gemini: {
+    name: 'Gemini',
+    placeholder: 'AIza…',
+    prefix: 'AIza',
+    keyUrl: GEMINI_KEY_URL,
+    hint: '무료 · Google AI Studio에서 카드 없이 발급',
+    note: '무료 등급에서는 보낸 글을 Google이 제품 개선에 써요. 민감한 대화에는 쓰지 마세요.',
+  },
+  claude: {
+    name: 'Claude',
+    placeholder: 'sk-ant-api03-…',
+    prefix: 'sk-ant-',
+    keyUrl: 'https://platform.claude.com/settings/keys',
+    hint: '유료 · 사용한 만큼 아주 적게 과금',
+  },
+};
+
 const ENGINE_OPTIONS: { id: EngineId; label: string }[] = [
-  { id: 'chrome', label: 'Chrome 내장 번역 · 무료' },
+  { id: 'chrome', label: isDesktop ? 'Chrome 내장 번역 · 웹 버전 전용' : 'Chrome 내장 번역 · 무료' },
+  { id: 'gemini', label: 'Gemini · 무료 키' },
   { id: 'claude', label: `${CLAUDE_LABEL} · 내 키` },
   { id: 'none', label: '번역 안 함 · 글자만' },
 ];
 
 export function SettingsPanel({ controller }: { controller: OverlingoController }) {
   const settings = useStore(controller.settings);
-  const { hasClaudeKey } = useStore(controller.ui);
+  const { keys } = useStore(controller.ui);
   const close = () => controller.openSettings(false);
 
   useEffect(() => {
@@ -34,7 +59,7 @@ export function SettingsPanel({ controller }: { controller: OverlingoController 
     controller.updateSettings({ autoOcrLanguages: next });
   };
 
-  const claudeWithoutKey = !hasClaudeKey && Object.values(settings.engines).includes('claude');
+  const missingKeys = KEY_PROVIDERS.filter((p) => !keys[p] && Object.values(settings.engines).includes(p));
 
   return (
     <div className="modal-backdrop" onClick={close}>
@@ -80,12 +105,22 @@ export function SettingsPanel({ controller }: { controller: OverlingoController 
               </label>
             ))}
           </div>
-          {claudeWithoutKey && <p className="field-error">Claude를 쓰려면 아래에서 API 키를 등록하세요. 그 전까진 내장 번역을 써요.</p>}
+          {missingKeys.length > 0 && (
+            <p className="field-error">
+              {missingKeys.map((p) => PROVIDERS[p].name).join(', ')}을(를) 쓰려면 아래에서 API 키를 등록하세요. 그 전까진
+              쓸 수 있는 다른 엔진으로 번역해요.
+            </p>
+          )}
+          {isDesktop && (
+            <p className="muted small">데스크톱 앱에서는 Chrome 내장 번역을 쓸 수 없어요. 무료로 쓰려면 Gemini 키를 등록하세요.</p>
+          )}
         </section>
 
         <section>
           <h3>내 API 키</h3>
-          <ClaudeKey controller={controller} />
+          {KEY_PROVIDERS.map((provider) => (
+            <ApiKeyRow key={provider} controller={controller} provider={provider} />
+          ))}
           <div className="radio-row">
             <label>
               <input
@@ -108,7 +143,8 @@ export function SettingsPanel({ controller }: { controller: OverlingoController 
           </div>
           <p className="note">
             <IconShieldLock size={16} />
-            키는 이 브라우저에만 보관되고, 번역을 요청할 때 Anthropic으로만 전송돼요. Overlingo 서버로는 보내지 않아요.
+            키는 {isDesktop ? '이 PC' : '이 브라우저'}에만 보관되고, 번역을 요청할 때 해당 회사(Google, Anthropic)로만
+            전송돼요. Overlingo 서버로는 보내지 않아요.
           </p>
         </section>
 
@@ -131,7 +167,7 @@ export function SettingsPanel({ controller }: { controller: OverlingoController 
         </section>
 
         <section>
-          <h3>PiP 창 표시</h3>
+          <h3>{isDesktop ? '번역 표시' : 'PiP 창 표시'}</h3>
           <label className="row small">
             글자 크기
             <input
@@ -152,7 +188,7 @@ export function SettingsPanel({ controller }: { controller: OverlingoController 
             />
             원문 함께 보기
           </label>
-          <div className="radio-row small">
+          <div className="radio-row small" hidden={isDesktop}>
             채팅 보기
             <label>
               <input
@@ -186,8 +222,9 @@ export function SettingsPanel({ controller }: { controller: OverlingoController 
   );
 }
 
-function ClaudeKey({ controller }: { controller: OverlingoController }) {
-  const { hasClaudeKey } = useStore(controller.ui);
+function ApiKeyRow({ controller, provider }: { controller: OverlingoController; provider: KeyProvider }) {
+  const hasKey = useStore(controller.ui).keys[provider];
+  const { name, placeholder, prefix, keyUrl, hint, note } = PROVIDERS[provider];
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -211,12 +248,12 @@ function ClaudeKey({ controller }: { controller: OverlingoController }) {
       setMessage({ ok: false, text: 'API 키를 입력하세요' });
       return;
     }
-    if (!key.startsWith('sk-ant-')) {
-      setMessage({ ok: false, text: 'Claude API 키는 sk-ant-로 시작해요' });
+    if (!key.startsWith(prefix)) {
+      setMessage({ ok: false, text: `${name} API 키는 ${prefix}로 시작해요` });
       return;
     }
     void run(async () => {
-      await controller.registerClaudeKey(key);
+      await controller.registerKey(provider, key);
       setDraft('');
     }, '키를 확인하고 등록했어요');
   };
@@ -224,20 +261,20 @@ function ClaudeKey({ controller }: { controller: OverlingoController }) {
   return (
     <div className="key-row stack" style={{ gap: 8 }}>
       <div className="row">
-        <strong>Claude</strong>
-        <span className={`chip${hasClaudeKey ? ' success' : ''}`}>{hasClaudeKey ? '연결됨' : '미설정'}</span>
-        {hasClaudeKey ? (
+        <strong>{name}</strong>
+        <span className={`chip${hasKey ? ' success' : ''}`}>{hasKey ? '연결됨' : '미설정'}</span>
+        {hasKey ? (
           <>
-            <span className="mono muted">{controller.maskedClaudeKey()}</span>
+            <span className="mono muted">{controller.maskedKey(provider)}</span>
             <span className="push actions">
-              <button className="small" disabled={busy} onClick={() => void run(() => controller.testClaudeKey(), '키가 정상이에요')}>
+              <button className="small" disabled={busy} onClick={() => void run(() => controller.testKey(provider), '키가 정상이에요')}>
                 키 테스트
               </button>
               <button
                 className="small"
-                aria-label="키 삭제"
+                aria-label={`${name} 키 삭제`}
                 onClick={() => {
-                  controller.removeClaudeKey();
+                  controller.removeKey(provider);
                   setMessage(null);
                 }}
               >
@@ -251,8 +288,8 @@ function ClaudeKey({ controller }: { controller: OverlingoController }) {
               type="password"
               autoComplete="off"
               spellCheck={false}
-              placeholder="sk-ant-api03-…"
-              aria-label="Claude API 키"
+              placeholder={placeholder}
+              aria-label={`${name} API 키`}
               value={draft}
               onChange={(e) => {
                 setDraft(e.target.value);
@@ -269,12 +306,25 @@ function ClaudeKey({ controller }: { controller: OverlingoController }) {
         )}
       </div>
       {message && <p className={message.ok ? 'tone-ok small' : 'field-error'}>{message.text}</p>}
-      {!hasClaudeKey && (
-        <a className="small row" href="https://platform.claude.com/settings/keys" target="_blank" rel="noreferrer">
-          Claude API 키 발급받기
-          <IconExternalLink size={14} />
-        </a>
+      {!hasKey && (
+        <p className="row small">
+          <span className="muted">{hint}</span>
+          <a
+            className="row"
+            href={keyUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => {
+              event.preventDefault();
+              openExternal(keyUrl);
+            }}
+          >
+            키 발급받기
+            <IconExternalLink size={14} />
+          </a>
+        </p>
       )}
+      {note && <p className="muted small">{note}</p>}
     </div>
   );
 }

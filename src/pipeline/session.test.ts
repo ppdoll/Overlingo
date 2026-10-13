@@ -73,7 +73,7 @@ describe('TranslationSession in chat mode', () => {
   });
 
   it('translates a message that wraps inside one bubble as a single sentence', async () => {
-    const bubble = { x: 0, y: 0, w: 250, h: 70 };
+    const bubble = { x: 0, y: 5, w: 250, h: 70 };
     const { store, engine, frame } = setup('chat', ['I really thought we were\ngoing to lose that one.'], [bubble]);
     await frame();
     expect(engine.calls).toEqual([['I really thought we were going to lose that one.']]);
@@ -86,6 +86,24 @@ describe('TranslationSession in chat mode', () => {
         failed: false,
       },
     ]);
+  });
+
+  it('skips a bubble cut off by the top of the region', async () => {
+    const cutOff = { x: 0, y: 0, w: 250, h: 35 };
+    const whole = { x: 0, y: 35, w: 250, h: 30 };
+    const { engine, frame } = setup('chat', ['lose that one.\nwait for me, brb'], [cutOff, whole]);
+    await frame();
+    expect(engine.calls).toEqual([['wait for me, brb']]);
+  });
+
+  it('ignores text outside the bubbles of a messenger', async () => {
+    const bubbles = [
+      { x: 0, y: 25, w: 250, h: 30 },
+      { x: 0, y: 55, w: 250, h: 30 },
+    ];
+    const { engine, frame } = setup('chat', ['Game chat - Sam\ngg, that was close lol\nwait for me, brb'], bubbles);
+    await frame();
+    expect(engine.calls).toEqual([['gg, that was close lol', 'wait for me, brb']]);
   });
 
   it('re-reads a bubble that whole-image OCR skipped', async () => {

@@ -30,7 +30,12 @@ export interface CapturedFrame {
 }
 
 export type ToWorker =
+  /** Read frames from a screen share stream (web). */
   | { type: 'start'; readable: ReadableStream<VideoFrame>; gate: GateConfig; region: NormRect | null }
+  /** Frames will arrive one by one as `image` messages (desktop). */
+  | { type: 'start-images'; gate: GateConfig; region: NormRect | null }
+  /** Raw RGBA pixels starting at `offset`. Answered with `processed`. */
+  | { type: 'image'; buffer: ArrayBuffer; offset: number; width: number; height: number }
   | { type: 'region'; region: NormRect | null }
   | { type: 'gate'; gate: GateConfig }
   | { type: 'grab' }
@@ -39,5 +44,8 @@ export type ToWorker =
 export type FromWorker =
   | { type: 'frame'; frame: CapturedFrame; forced: boolean }
   | { type: 'stats'; fps: number; width: number; height: number }
+  /** The region started changing. */
+  | { type: 'motion' }
+  | { type: 'processed' }
   | { type: 'ended' }
   | { type: 'error'; message: string };

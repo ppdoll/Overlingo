@@ -37,6 +37,11 @@ export class StabilityGate {
 
   constructor(private readonly options: GateOptions) {}
 
+  /** A change has started and hasn't been read yet. */
+  get changing(): boolean {
+    return this.pendingSince !== null;
+  }
+
   push(signature: Uint8Array, now: number): boolean {
     const { threshold, stableMs, maxWaitMs } = this.options;
     if (!this.last || signatureDiff(signature, this.last) > threshold) {

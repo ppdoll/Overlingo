@@ -1,20 +1,27 @@
 import type { Mode, NormRect } from '../core/types';
+import { wrapText } from '../core/wrap';
 
-// A fake desktop with a video player and a game chat, drawn on a canvas and captured as a
-// MediaStream. Lets people try the app without sharing their screen, and exercises the exact
-// same pipeline as a real screen share.
+// A fake desktop with a video player and a game chat. The web app captures it as a MediaStream
+// and the desktop app shows it in a window of its own, so both can be tried without a real
+// video or messenger, through the exact same pipeline.
 
 const WIDTH = 1280;
 const HEIGHT = 720;
+export const DEMO_SIZE = { width: WIDTH, height: HEIGHT };
 const SUBTITLE_SECONDS = 3.5;
 const CHAT_SECONDS = 3;
 
 const SUBTITLES = [
   "I never thought I'd see you here again.",
   'Where have you been all this time?',
-  "It doesn't matter now. We have to leave.",
+  "It doesn't matter now. We have to go.",
   'Wait. Someone is coming.',
 ];
+
+// The video player on the left; its subtitle line is centered under the picture.
+const PLAYER = { x: 40, y: 40, w: 560, h: 520 };
+const SUBTITLE_X = PLAYER.x + PLAYER.w / 2;
+const SUBTITLE_Y = 502;
 
 /** `from: null` is you: your messages sit on the right, like in a real messenger. */
 const CHAT: { from: string | null; text: string }[] = [
@@ -30,15 +37,16 @@ const CHAT: { from: string | null; text: string }[] = [
 
 const NAME_COLORS: Record<string, string> = { Kenji: '#c0582b', Mia: '#2e7bb8', Sam: '#8a4bb0' };
 
-// The chat panel, Telegram style: bubbles on a patterned green background.
-const PANEL = { x: 880, y: 40, w: 360, h: 640, header: 36 };
+// The chat panel, Telegram style: bubbles on a patterned green background. The desktop to its
+// right stays empty, so the desktop app's overlay has room for translations there.
+const PANEL = { x: 640, y: 40, w: 360, h: 640, header: 36 };
 const BODY_TOP = PANEL.y + PANEL.header;
 const BODY_BOTTOM = PANEL.y + PANEL.h;
 const BUBBLE = { maxText: 250, padX: 12, padY: 10, line: 24, name: 22, gap: 10 };
 
 /** Regions that frame the demo's subtitle line and chat messages. */
 export const DEMO_REGIONS: Record<Mode, NormRect> = {
-  subtitle: { x: 60 / WIDTH, y: 455 / HEIGHT, w: 760 / WIDTH, h: 70 / HEIGHT },
+  subtitle: { x: (PLAYER.x + 10) / WIDTH, y: 466 / HEIGHT, w: (PLAYER.w - 20) / WIDTH, h: 54 / HEIGHT },
   chat: { x: PANEL.x / WIDTH, y: BODY_TOP / HEIGHT, w: PANEL.w / WIDTH, h: (BODY_BOTTOM - BODY_TOP) / HEIGHT },
 };
 
@@ -55,14 +63,7 @@ export function startDemoStream(): { stream: MediaStream; stop: () => void } {
   canvas.height = HEIGHT;
   const ctx = canvas.getContext('2d')!;
   const startedAt = performance.now();
-
-  const draw = () => {
-    const t = (performance.now() - startedAt) / 1000;
-    ctx.fillStyle = '#d8dde3';
-    ctx.fillRect(0, 0, WIDTH, HEIGHT);
-    drawPlayer(ctx, t);
-    drawChat(ctx, t);
-  };
+  const draw = () => drawDemo(ctx, (performance.now() - startedAt) / 1000);
 
   draw();
   const timer = window.setInterval(draw, 100);
@@ -76,35 +77,43 @@ export function startDemoStream(): { stream: MediaStream; stop: () => void } {
   };
 }
 
+/** Draws the whole sample desktop as it looks `t` seconds in. */
+export function drawDemo(ctx: CanvasRenderingContext2D, t: number) {
+  ctx.fillStyle = '#d8dde3';
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  drawPlayer(ctx, t);
+  drawChat(ctx, t);
+}
+
 function drawPlayer(ctx: CanvasRenderingContext2D, t: number) {
   ctx.fillStyle = '#2c2c2a';
-  ctx.fillRect(40, 40, 800, 520);
+  ctx.fillRect(PLAYER.x, PLAYER.y, PLAYER.w, PLAYER.h);
   ctx.fillStyle = '#444441';
-  ctx.fillRect(40, 40, 800, 36);
+  ctx.fillRect(PLAYER.x, PLAYER.y, PLAYER.w, 36);
   ctx.fillStyle = '#d3d1c7';
   ctx.font = '18px sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText('동영상 플레이어', 56, 64);
+  ctx.fillText('동영상 플레이어', PLAYER.x + 16, PLAYER.y + 24);
 
   // Moving shapes, so the background behind the subtitle changes like real video.
   ctx.fillStyle = '#5f5e5a';
   ctx.beginPath();
-  ctx.arc(220 + 70 * Math.sin(t), 250, 95, 0, Math.PI * 2);
+  ctx.arc(190 + 60 * Math.sin(t), 250, 90, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#6b6a64';
-  ctx.fillRect(500 + 50 * Math.cos(t * 0.7), 170, 240, 190);
+  ctx.fillRect(360 + 40 * Math.cos(t * 0.7), 170, 180, 180);
 
   const phase = t % SUBTITLE_SECONDS;
   if (phase < SUBTITLE_SECONDS - 0.4) {
     const line = SUBTITLES[Math.floor(t / SUBTITLE_SECONDS) % SUBTITLES.length];
-    ctx.font = '600 34px sans-serif';
+    ctx.font = '600 26px sans-serif';
     ctx.textAlign = 'center';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = 6;
+    ctx.lineWidth = 5;
     ctx.strokeStyle = '#000000';
-    ctx.strokeText(line, 440, 502);
+    ctx.strokeText(line, SUBTITLE_X, SUBTITLE_Y);
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(line, 440, 502);
+    ctx.fillText(line, SUBTITLE_X, SUBTITLE_Y);
   }
 }
 
@@ -142,7 +151,7 @@ function drawChat(ctx: CanvasRenderingContext2D, t: number) {
 /** Draws one message bubble ending at `bottom` and returns its top. */
 function drawBubble(ctx: CanvasRenderingContext2D, message: { from: string | null; text: string }, bottom: number): number {
   ctx.font = '18px sans-serif';
-  const lines = wrap(ctx, message.text, BUBBLE.maxText);
+  const lines = wrapText(message.text, BUBBLE.maxText, (line) => ctx.measureText(line).width);
   const textWidth = Math.max(...lines.map((line) => ctx.measureText(line).width));
   ctx.font = '600 16px sans-serif';
   const nameWidth = message.from ? ctx.measureText(message.from).width : 0;
@@ -169,23 +178,4 @@ function drawBubble(ctx: CanvasRenderingContext2D, message: { from: string | nul
     y += BUBBLE.line;
   }
   return top;
-}
-
-/** Wraps by words, or by characters for Japanese and Chinese. Blank lines between paragraphs stay. */
-function wrap(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
-  const lines: string[] = [];
-  for (const paragraph of text.split('\n')) {
-    const tokens = /\s/.test(paragraph) ? paragraph.split(/(?<=\s)/) : [...paragraph];
-    let line = '';
-    for (const token of tokens) {
-      if (line && ctx.measureText(line + token).width > maxWidth) {
-        lines.push(line.trimEnd());
-        line = token.trimStart();
-      } else {
-        line += token;
-      }
-    }
-    lines.push(line.trimEnd());
-  }
-  return lines;
 }
