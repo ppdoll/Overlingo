@@ -29,6 +29,42 @@ body {
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.42);
 }
 
+/* The window under the pointer: clicking picks it. */
+.window-highlight {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid #378add;
+  background: rgba(55, 138, 221, 0.1);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.42);
+  pointer-events: none;
+}
+
+.window-label {
+  position: absolute;
+  max-width: calc(100% - 16px);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #ffffff;
+  background: #185fa5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.window-app {
+  margin-left: 8px;
+  opacity: 0.75;
+}
+
+/* While dragging: the window the region will belong to and follow. */
+.window-outline {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px dashed #85b7eb;
+  pointer-events: none;
+}
+
 .size {
   position: absolute;
   left: -2px;

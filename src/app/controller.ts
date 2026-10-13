@@ -1,8 +1,9 @@
 import { DEMO_REGIONS, startDemoStream } from '../capture/demoSource';
 import type { FrameSource } from '../capture/frameSource';
-import { NativeCapture } from '../capture/nativeCapture';
+import { NativeCapture, targetFor, type TargetVisibility } from '../capture/nativeCapture';
 import { GATE_PRESETS, type CapturedFrame } from '../capture/protocol';
 import { frameProcessingSupported, StreamCapture } from '../capture/streamCapture';
+import type { AnchorStyle } from '../core/anchor';
 import { ocrLanguagesFor } from '../core/languages';
 import { cleanOcrText } from '../core/ocrText';
 import type { Mode, NormRect } from '../core/types';
@@ -22,6 +23,8 @@ import {
   showOverlay,
   startRegionSelect,
   windowCovers,
+  type PickedWindow,
+  type RegionChoice,
   type ScreenRect,
 } from '../platform/desktop';
 import { initialLiveState, type ChatLayout, type LiveState } from '../state/live';
@@ -57,6 +60,10 @@ export interface UiState {
   /** Desktop: the region picked on screen, and a picture of it. */
   screenRegion: ScreenRect | null;
   regionPreviewUrl: string | null;
+  /** Desktop: the window the region belongs to, when the user picked a window. */
+  targetWindow: PickedWindow | null;
+  /** Desktop: whether that window can be read right now. */
+  targetVisibility: TargetVisibility;
   demo: boolean;
   region: NormRect | null;
   /** What OCR reads in the region while it's being chosen. null until the first read. */
@@ -89,6 +96,8 @@ export class OverlingoController {
     stream: null,
     screenRegion: null,
     regionPreviewUrl: null,
+    targetWindow: null,
+    targetVisibility: 'visible',
     demo: false,
     region: null,
     previewText: null,
@@ -116,13 +125,15 @@ export class OverlingoController {
   private sentOverlay = '';
   private overlayStale = false;
   private overlayLayout: ChatLayout | null = null;
+  /** The monitor the overlay covers. */
+  private overlayMonitor: ScreenRect | null = null;
 
   constructor() {
     this.ui.set((s) => ({ ...s, keys: { claude: this.keys.claude !== null, gemini: this.keys.gemini !== null } }));
     this.settings.subscribe(() => saveSettings(this.settings.get()));
     if (isDesktop) {
-      void onRegionSelected((region) => {
-        if (region) this.beginNativeCapture(region, false);
+      void onRegionSelected((choice) => {
+        if (choice) this.beginNativeCapture(choice, false);
       });
       void onOverlayReady(() => this.syncOverlay(true));
       this.live.subscribe(() => this.syncOverlay());
@@ -138,6 +149,7 @@ export class OverlingoController {
     const after = this.settings.get();
     if (after.mode !== before.mode) {
       this.capture?.setGate(GATE_PRESETS[after.mode]);
+      if (this.capture instanceof NativeCapture) this.capture.setAnchorStyle(anchorStyleFor(after.mode));
       if (this.ui.get().demo && this.ui.get().view === 'select' && !isDesktop) this.setRegion(DEMO_REGIONS[after.mode]);
     }
     this.session?.update({ mode: after.mode, source: after.source, target: after.target, engine: this.engineFor(after.mode) });
@@ -331,6 +343,8 @@ export class OverlingoController {
       view: 'start',
       stream: null,
       screenRegion: null,
+      targetWindow: null,
+      targetVisibility: 'visible',
       demo: false,
       region: null,
       previewText: null,
@@ -372,36 +386,32 @@ export class OverlingoController {
 
   private async startDesktopDemo() {
     try {
-      const region = await openDemoWindow(DEMO_REGIONS[this.settings.get().mode], (moved) => this.followRegion(moved));
-      this.beginNativeCapture(region, true);
+      const choice = await openDemoWindow(DEMO_REGIONS[this.settings.get().mode], () => this.raiseOverlay());
+      this.beginNativeCapture(choice, true);
     } catch (error) {
       this.setError(`샘플 채팅 창을 열지 못했어요: ${messageOf(error)}`);
     }
   }
 
-  /** The sample chat window moved: read it where it is now. */
-  private followRegion(region: ScreenRect) {
-    if (!(this.capture instanceof NativeCapture)) return;
-    this.capture.setScreenRegion(region);
-    this.ui.set((s) => ({ ...s, screenRegion: region }));
-    this.overlayStale = true;
-    if (this.ui.get().overlayOn) void showOverlay(region).then(() => this.syncOverlay(true));
-  }
-
-  private beginNativeCapture(region: ScreenRect, demo: boolean) {
+  /** Starts reading what the user picked: part of a window, followed wherever it goes, or a fixed region. */
+  private beginNativeCapture({ region, window }: RegionChoice, demo: boolean) {
     this.session?.stop();
     this.session = null;
     this.closeOverlay();
+    const mode = this.settings.get().mode;
+    const target = targetFor(region, window, anchorStyleFor(mode));
     if (this.capture instanceof NativeCapture) {
-      this.capture.setScreenRegion(region);
+      this.capture.setTarget(target);
     } else {
       this.capture?.stop();
-      this.useCapture(new NativeCapture(region, GATE_PRESETS[this.settings.get().mode]));
+      this.useNativeCapture(new NativeCapture(target, GATE_PRESETS[mode]));
     }
     this.ui.set((s) => ({
       ...s,
       view: 'select',
       screenRegion: region,
+      targetWindow: window,
+      targetVisibility: 'visible',
       demo,
       region: WHOLE_IMAGE,
       previewText: null,
@@ -412,6 +422,27 @@ export class OverlingoController {
     this.capture?.grab();
   }
 
+  private useNativeCapture(capture: NativeCapture) {
+    this.useCapture(capture);
+    capture.onRegion = (region, resized) => {
+      this.ui.set((s) => ({ ...s, screenRegion: region }));
+      // Moved, the labels move along with it. Resized, the chat reflows, so they wait for the next read.
+      if (resized) this.overlayStale = true;
+      if (this.ui.get().overlayOn) void this.placeOverlay(region, false);
+      if (this.ui.get().view === 'select') void this.refreshRegionPreview(region);
+    };
+    capture.onVisibility = (visibility) => {
+      this.ui.set((s) => ({ ...s, targetVisibility: visibility }));
+      // Back in view, the chat may have changed while it was hidden.
+      if (visibility === 'visible') this.overlayStale = true;
+      this.syncOverlay();
+    };
+    capture.onTargetGone = () => {
+      this.stopSharing();
+      this.setError('번역하던 창이 닫혔어요. 다시 지정해 주세요.');
+    };
+  }
+
   private useCapture(capture: FrameSource) {
     capture.onFrame = (frame) => this.handleFrame(frame);
     capture.onStats = (fps) => this.live.set((s) => ({ ...s, stats: { ...s.stats, fps } }));
@@ -419,6 +450,13 @@ export class OverlingoController {
     capture.onMotion = () => {
       if (this.settings.get().mode !== 'chat' || this.overlayStale) return;
       this.overlayStale = true;
+      this.syncOverlay();
+    };
+    // Nothing new to read after all (a tooltip or a window passing by), so no fresh read will
+    // put the labels back; they are right as they are.
+    capture.onStill = () => {
+      if (!this.overlayStale) return;
+      this.overlayStale = false;
       this.syncOverlay();
     };
     this.capture = capture;
@@ -445,7 +483,7 @@ export class OverlingoController {
 
   private async openOverlay(region: ScreenRect) {
     try {
-      await showOverlay(region);
+      this.overlayMonitor = await showOverlay(region);
       this.ui.set((s) => ({ ...s, overlayOn: true }));
       this.syncOverlay(true);
       // Whatever covers the region gets read instead of it, so get this window out of the way.
@@ -459,7 +497,35 @@ export class OverlingoController {
     if (!this.ui.get().overlayOn) return;
     this.ui.set((s) => ({ ...s, overlayOn: false }));
     this.sentOverlay = '';
+    this.overlayMonitor = null;
     void hideOverlay();
+  }
+
+  /**
+   * Keeps the overlay over the monitor the region is on, since it covers one monitor at a time.
+   * `raise` puts it back on top too, after the always-on-top sample chat came to the front.
+   */
+  private async placeOverlay(region: ScreenRect, raise: boolean) {
+    const monitor = this.overlayMonitor;
+    const center = { x: region.x + region.width / 2, y: region.y + region.height / 2 };
+    const onMonitor =
+      monitor !== null &&
+      center.x >= monitor.x &&
+      center.x < monitor.x + monitor.width &&
+      center.y >= monitor.y &&
+      center.y < monitor.y + monitor.height;
+    try {
+      if (raise || !onMonitor) this.overlayMonitor = await showOverlay(region);
+      this.syncOverlay(!onMonitor);
+    } catch (error) {
+      this.setError(`오버레이를 옮기지 못했어요: ${messageOf(error)}`);
+    }
+  }
+
+  /** The sample chat came to the front, over the overlay. */
+  private raiseOverlay() {
+    const { overlayOn, screenRegion } = this.ui.get();
+    if (overlayOn && screenRegion) void this.placeOverlay(screenRegion, true);
   }
 
   /** Sends the overlay what to draw, when that changed. */
@@ -472,7 +538,8 @@ export class OverlingoController {
       this.overlayLayout = live.layout;
       this.overlayStale = false;
     }
-    const state = buildOverlayState(live, this.settings.get(), screenRegion, this.overlayStale);
+    const hidden = this.ui.get().targetVisibility !== 'visible';
+    const state = buildOverlayState(live, this.settings.get(), screenRegion, { stale: this.overlayStale, hidden });
     const serialized = JSON.stringify(state);
     if (!force && serialized === this.sentOverlay) return;
     this.sentOverlay = serialized;
@@ -575,6 +642,11 @@ export class OverlingoController {
   private setError(error: string) {
     this.ui.set((s) => ({ ...s, error }));
   }
+}
+
+/** Chat regions keep their margins to the window's edges; subtitles scale with the video. */
+function anchorStyleFor(mode: Mode): AnchorStyle {
+  return mode === 'chat' ? 'edges' : 'scale';
 }
 
 function verifyKey(provider: KeyProvider, key: string): Promise<void> {

@@ -1,7 +1,8 @@
 // Looks at captured frames off the main thread: either a screen share stream (web) or raw images
 // sent one by one (desktop). A stream-driven loop keeps running when the tab is in the
 // background, where timers would be throttled to once a second or less.
-import { findBubbleRegions } from '../core/bubbles';
+import { anchorTo, placeIn, type WindowAnchor } from '../core/anchor';
+import { findBubbleRegions, findInkRows } from '../core/bubbles';
 import { StabilityGate, toGray } from '../core/changeDetect';
 import { toPixelRect } from '../core/geometry';
 import { prepareForOcr } from '../core/preprocess';
@@ -22,6 +23,8 @@ const MAX_OCR_PIXELS = 3_200_000;
 
 let reader: ReadableStreamDefaultReader<VideoFrame> | null = null;
 let region: NormRect | null = null;
+/** The region pinned to the frame's edges when it was picked, for when the frame is resized. */
+let anchored: { region: NormRect; anchor: WindowAnchor } | null = null;
 let gateConfig: GateConfig | null = null;
 let gate: StabilityGate | null = null;
 let grabRequested = false;
@@ -52,6 +55,11 @@ scope.onmessage = ({ data: message }) => {
       break;
     case 'gate':
       setGate(message.gate);
+      // Chat and subtitle regions follow a resized frame differently; keep the picked geometry.
+      if (anchored) {
+        const { region: picked, window: frame } = anchored.anchor;
+        anchored = { ...anchored, anchor: anchorTo(picked, frame, message.gate.layout ? 'edges' : 'scale') };
+      }
       break;
     case 'grab':
       grabRequested = true;
@@ -110,16 +118,30 @@ async function look(source: CanvasImageSource, width: number, height: number, pa
   if (!paced && !grabRequested && now - lastLook < gateConfig.intervalMs) return;
   lastLook = now;
 
-  const crop = toPixelRect(region, width, height);
+  const crop = cropFor(region, gateConfig, width, height);
   if (crop.w < 4 || crop.h < 4) return;
   const forced = grabRequested;
   grabRequested = false;
   const changed = gate.push(signature(source, crop), now);
   if (gate.changing && !wasChanging) scope.postMessage({ type: 'motion' });
+  if (!gate.changing && wasChanging && !changed) scope.postMessage({ type: 'still' });
   wasChanging = gate.changing;
   if (changed || forced) {
     scope.postMessage({ type: 'frame', frame: await capture(source, crop, gateConfig.layout), forced });
   }
+}
+
+/**
+ * Where the region is in a frame of this size. A shared window that gets resized changes the
+ * frame size; the region then follows the part of the window it was picked on, the same way
+ * the desktop app follows a picked window.
+ */
+function cropFor(picked: NormRect, config: GateConfig, width: number, height: number): Rect {
+  const frame = { x: 0, y: 0, w: width, h: height };
+  if (anchored?.region !== picked) {
+    anchored = { region: picked, anchor: anchorTo(toPixelRect(picked, width, height), frame, config.layout ? 'edges' : 'scale') };
+  }
+  return placeIn(anchored.anchor, frame);
 }
 
 function countFrame(width: number, height: number, now: number) {
@@ -160,8 +182,10 @@ async function capture(source: CanvasImageSource, crop: Rect, layout: boolean): 
   ctx.drawImage(source, crop.x, crop.y, crop.w, crop.h, 0, 0, width, height);
   const image = ctx.getImageData(0, 0, width, height);
 
-  // Both read the original colors, so they come before the OCR clean-up below.
-  const bubbles = layout ? findBubbleRegions(image.data, width, height) : [];
+  // These read the original colors, so they come before the OCR clean-up below.
+  const bubbles = layout
+    ? findBubbleRegions(image.data, width, height).map((box) => ({ ...box, rows: findInkRows(image.data, width, height, box) }))
+    : [];
   const snapshot = layout ? await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 }) : null;
 
   prepareForOcr(image);

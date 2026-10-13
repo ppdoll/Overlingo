@@ -9,11 +9,15 @@ export interface LiveLine {
   failed?: boolean;
   /** Chat only: which side of the chat the message was on. */
   align?: Align;
+  /** Chat only: who sent it, when the bubble showed the sender's name. */
+  sender?: string;
 }
 
 /** A chat message on screen right now, with where it sits in the snapshot. */
 export interface LayoutUnit {
+  /** The message, without the sender's name. */
   source: string;
+  sender: string | null;
   box: Rect;
   align: Align;
   translated: string | null;

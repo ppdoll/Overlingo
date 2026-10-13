@@ -30,6 +30,11 @@ export function LiveView({ controller }: { controller: OverlingoController }) {
         </span>
         <span className="chip">번역 · {engine.label}</span>
         {isDesktop && ui.overlayOn && <span className="chip success">오버레이 표시 중</span>}
+        {isDesktop && ui.targetWindow && (
+          <span className="chip" title={ui.targetWindow.title}>
+            <span className="chip-text">창 따라가기 · {ui.targetWindow.title}</span>
+          </span>
+        )}
         <div className="push actions">
           {running ? (
             <button className="icon" aria-label="일시정지" title="일시정지" onClick={() => controller.pause()}>
@@ -56,6 +61,13 @@ export function LiveView({ controller }: { controller: OverlingoController }) {
         </div>
       </div>
 
+      {isDesktop && ui.targetVisibility !== 'visible' && (
+        <Banner tone="info">
+          {ui.targetVisibility === 'minimized'
+            ? '번역하던 창이 최소화돼 있어요. 창을 다시 열면 이어서 번역해요.'
+            : '번역하던 창이 다른 창에 가려져 있어요. 다시 보이면 이어서 번역해요.'}
+        </Banner>
+      )}
       {ui.modelProgress !== null && (
         <Banner tone="info">번역 모델 받는 중… {Math.round(ui.modelProgress * 100)}%</Banner>
       )}
@@ -163,6 +175,7 @@ function History({ lines }: { lines: LiveLine[] }) {
         <li key={line.id}>
           <span className="time">{formatTime(line.at)}</span>
           <div>
+            {line.sender && <p className="sender">{line.sender}</p>}
             {line.translated !== null ? (
               <p className="translated">{line.translated}</p>
             ) : line.failed ? (

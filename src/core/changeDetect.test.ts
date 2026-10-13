@@ -38,8 +38,11 @@ describe('StabilityGate', () => {
     gate.push(B, 0);
     expect(gate.push(B, 250)).toBe(true);
     expect(gate.push(A, 300)).toBe(false);
+    expect(gate.changing).toBe(true);
     expect(gate.push(B, 350)).toBe(false);
     expect(gate.push(B, 600)).toBe(false);
+    // Settled without a new read: the capture worker reports this as 'still'.
+    expect(gate.changing).toBe(false);
   });
 
   it('keeps firing at maxWaitMs while the region never settles', () => {

@@ -2,6 +2,7 @@ import type { CapturedFrame } from '../capture/protocol';
 import { groupIntoUnits, type OcrLine, type TextUnit } from '../core/bubbles';
 import { LruCache } from '../core/lru';
 import { cleanOcrText } from '../core/ocrText';
+import { splitSenders } from '../core/senders';
 import { similarity } from '../core/similarity';
 import { ChatLineTracker, SubtitleTracker } from '../core/textDiff';
 import type { Align, Mode, Rect } from '../core/types';
@@ -51,6 +52,8 @@ export class TranslationSession {
   /** Recent chat translations, for messages OCR now reads a little differently. */
   private readonly recent: { source: string; translated: string }[] = [];
   private readonly failed = new Set<string>();
+  /** Names seen opening group chat bubbles, so they're recognized from then on. */
+  private readonly senders = new Set<string>();
   private reading = false;
   private queued: CapturedFrame | null = null;
   private stopped = false;
@@ -132,11 +135,23 @@ export class TranslationSession {
   /**
    * Chat messages in the frame: one per bubble, or one per line where there are no bubbles.
    * Tesseract sometimes skips text that sits apart from the rest, like your own right-aligned
-   * bubbles, so bubbles that came back empty are read again on their own.
+   * bubbles, so bubbles that came back empty are read again on their own. Senders' names that
+   * open group chat bubbles are split off, so they aren't translated as part of the message.
    */
   private async chatUnits(result: { text: string; lines?: OcrLine[] }, frame: CapturedFrame): Promise<TextUnit[]> {
     if (!result.lines) {
-      return cleanOcrText(result.text).map((text) => ({ text, box: { x: 0, y: 0, w: 0, h: 0 }, align: 'full', bubble: false }));
+      return cleanOcrText(result.text).map(
+        (text): TextUnit => ({
+          text,
+          sender: null,
+          raw: text,
+          box: { x: 0, y: 0, w: 0, h: 0 },
+          align: 'full',
+          bubble: false,
+          lines: [],
+          rows: [],
+        }),
+      );
     }
     const lines = cleanLines(result.lines);
     const missed = frame.bubbles.filter(
@@ -146,7 +161,7 @@ export class TranslationSession {
       const reread = await this.reader.recognize(frame.image, bubble);
       lines.push(...cleanLines(reread.lines ?? []));
     }
-    const units = groupIntoUnits(lines, frame.bubbles, frame.width);
+    const units = splitSenders(groupIntoUnits(lines, frame.bubbles, frame.width), this.senders);
     // In a messenger with bubbles, text outside them is window chrome or a cut-off bubble.
     const bubbles = units.filter((unit) => unit.bubble);
     const messages = bubbles.length >= 2 ? bubbles : units;
@@ -156,7 +171,7 @@ export class TranslationSession {
   }
 
   private readChat(units: TextUnit[], frame: CapturedFrame, startedAt: number) {
-    const fresh = this.chat.update(units.map((unit) => unit.text));
+    const fresh = this.chat.update(units.map((unit) => unit.raw));
     this.publishLayout(frame, units);
     if (fresh.length > 0) void this.translateChat(pickUnits(units, fresh), startedAt);
   }
@@ -167,6 +182,7 @@ export class TranslationSession {
     const layoutUnits = units.map(
       (unit): LayoutUnit => ({
         source: unit.text,
+        sender: unit.sender,
         box: unit.box,
         align: unit.align,
         translated: this.recall(unit.text),
@@ -179,7 +195,7 @@ export class TranslationSession {
 
   private async translateChat(units: TextUnit[], startedAt: number) {
     const sources = units.map((unit) => unit.text);
-    const items = units.map((unit) => newLine(unit.text, unit.align));
+    const items = units.map((unit) => newLine(unit.text, unit.align, unit.sender));
     this.store.set((s) => ({ ...s, lines: [...s.lines, ...items].slice(-MAX_HISTORY) }));
     const translated = await this.translate(sources, startedAt);
     sources.forEach((source, i) => {
@@ -319,19 +335,19 @@ function contains(area: Rect, box: Rect): boolean {
   return cx >= area.x && cx <= area.x + area.w && cy >= area.y && cy <= area.y + area.h;
 }
 
-/** The units whose text the tracker reported as new, in screen order. */
+/** The units the tracker reported as new, in screen order. */
 function pickUnits(units: TextUnit[], fresh: string[]): TextUnit[] {
   const remaining = [...fresh];
   return units.filter((unit) => {
-    const i = remaining.indexOf(unit.text);
+    const i = remaining.indexOf(unit.raw);
     if (i === -1) return false;
     remaining.splice(i, 1);
     return true;
   });
 }
 
-function newLine(source: string, align?: Align): LiveLine {
-  return { id: ++lastLineId, at: Date.now(), source, translated: null, align };
+function newLine(source: string, align?: Align, sender?: string | null): LiveLine {
+  return { id: ++lastLineId, at: Date.now(), source, translated: null, align, ...(sender ? { sender } : {}) };
 }
 
 function finish(line: LiveLine, translated: string | undefined): LiveLine {

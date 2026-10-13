@@ -11,6 +11,7 @@ export class StreamCapture implements FrameSource {
   onFrame: (frame: CapturedFrame, forced: boolean) => void = () => {};
   onStats: (fps: number) => void = () => {};
   onMotion: () => void = () => {};
+  onStill: () => void = () => {};
   onEnded: () => void = () => {};
   onError: (message: string) => void = () => {};
 
@@ -61,6 +62,9 @@ export class StreamCapture implements FrameSource {
         break;
       case 'motion':
         this.onMotion();
+        break;
+      case 'still':
+        this.onStill();
         break;
       case 'ended':
         this.end();

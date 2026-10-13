@@ -1,5 +1,6 @@
+import type { Bubble } from '../core/bubbles';
 import type { GateOptions } from '../core/changeDetect';
-import type { Mode, NormRect, Rect } from '../core/types';
+import type { Mode, NormRect } from '../core/types';
 
 export interface GateConfig extends GateOptions {
   /** Minimum time between two looks at the region. */
@@ -25,8 +26,8 @@ export interface CapturedFrame {
   snapshot: Blob | null;
   width: number;
   height: number;
-  /** Chat bubbles found in the region (layout mode only). */
-  bubbles: Rect[];
+  /** Chat bubbles found in the region, with their rows of text (layout mode only). */
+  bubbles: Bubble[];
 }
 
 export type ToWorker =
@@ -46,6 +47,8 @@ export type FromWorker =
   | { type: 'stats'; fps: number; width: number; height: number }
   /** The region started changing. */
   | { type: 'motion' }
+  /** The region settled back to how it looked when last read (a popup came and went). */
+  | { type: 'still' }
   | { type: 'processed' }
   | { type: 'ended' }
   | { type: 'error'; message: string };

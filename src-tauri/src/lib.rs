@@ -1,20 +1,34 @@
-//! Native side of the Overlingo desktop app: screen capture, picking a region straight on the
-//! desktop, and a click-through overlay that draws translations next to what they translate.
-//! OCR, change tracking and translation run in the web frontend, shared with the web version.
+//! Native side of the Overlingo desktop app: screen capture, picking a region or a window
+//! straight on the desktop and following that window, and a click-through overlay that draws
+//! translations next to what they translate. OCR, change tracking and translation run in the
+//! web frontend, shared with the web version.
 
-use std::{collections::HashMap, io::Cursor, sync::Mutex, thread, time::Duration};
+mod target;
+
+use std::{
+    collections::HashMap,
+    io::Cursor,
+    sync::{Mutex, OnceLock},
+    thread,
+    time::Duration,
+};
 
 use image::{DynamicImage, RgbaImage, codecs::jpeg::JpegEncoder};
 use serde::{Deserialize, Serialize};
 use tauri::{
     AppHandle, Emitter, Manager, Monitor, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window, ipc::Response,
 };
-use xcap::Monitor as CaptureMonitor;
+use xcap::{Monitor as CaptureMonitor, Window as CaptureWindow};
+
+use target::WindowState;
 
 const MAIN: &str = "main";
 const OVERLAY: &str = "overlay";
 const DEMO: &str = "demo";
+const DEMO_TITLE: &str = "Overlingo 샘플 채팅";
 const SELECTOR_PREFIX: &str = "selector-";
+/// Smaller windows (physical pixels) are toolbars and the like, not worth picking.
+const MIN_PICKABLE: u32 = 80;
 
 /// A rectangle on the virtual desktop, in physical pixels.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -25,27 +39,105 @@ pub struct ScreenRect {
     pub height: u32,
 }
 
+/// A window the user can pick in the selector, as it was when the selector opened.
+#[derive(Clone, Debug, Serialize)]
+struct PickableWindow {
+    /// The window handle, which the frontend hands back to follow the window.
+    id: u32,
+    title: String,
+    app: String,
+    rect: ScreenRect,
+}
+
+/// What the user picked: a region, and the window it belongs to when they picked one.
+#[derive(Clone, Debug, Serialize)]
+struct RegionChoice {
+    region: ScreenRect,
+    window: Option<PickableWindow>,
+}
+
 /// The screenshot each region selector window shows, keyed by window label.
 #[derive(Default)]
 struct SelectorShots(Mutex<HashMap<String, Vec<u8>>>);
+
+/// The windows under the selectors, topmost first.
+#[derive(Default)]
+struct SelectorWindows(Mutex<Vec<PickableWindow>>);
+
+/// The main window's id, looked up once. It counts as covering a followed window, since
+/// capture would read it instead.
+#[derive(Default)]
+struct MainWindowId(OnceLock<Option<u32>>);
 
 fn err(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
-/// Captures `region` with GDI. Windows excluded from capture (the overlay) don't show up in it.
-fn capture(region: ScreenRect) -> Result<RgbaImage, String> {
-    let monitor = CaptureMonitor::from_point(region.x, region.y).map_err(err)?;
+/// The id (window handle) of one of our own windows.
+#[cfg(windows)]
+fn window_id(window: &WebviewWindow) -> Option<u32> {
+    window.hwnd().ok().map(|hwnd| target::id_of(hwnd.0))
+}
+
+#[cfg(not(windows))]
+fn window_id(_window: &WebviewWindow) -> Option<u32> {
+    None
+}
+
+/// Captures `region` with GDI, cut to the monitor that holds its center, and returns what was
+/// captured with where it is. Windows excluded from capture (the overlay) don't show up in it.
+fn capture(region: ScreenRect) -> Result<(RgbaImage, ScreenRect), String> {
+    const OFF_SCREEN: &str = "선택한 영역이 화면 밖에 있어요";
+    let cx = region.x + (region.width / 2) as i32;
+    let cy = region.y + (region.height / 2) as i32;
+    let monitor = CaptureMonitor::from_point(cx, cy).map_err(|_| OFF_SCREEN.to_string())?;
     let left = monitor.x().map_err(err)?;
     let top = monitor.y().map_err(err)?;
-    let x = u32::try_from(region.x - left).map_err(err)?;
-    let y = u32::try_from(region.y - top).map_err(err)?;
-    let width = region.width.min(monitor.width().map_err(err)?.saturating_sub(x));
-    let height = region.height.min(monitor.height().map_err(err)?.saturating_sub(y));
-    if width == 0 || height == 0 {
-        return Err("선택한 영역이 화면 밖에 있어요".into());
+    let right = left + monitor.width().map_err(err)? as i32;
+    let bottom = top + monitor.height().map_err(err)? as i32;
+    let x0 = region.x.max(left);
+    let y0 = region.y.max(top);
+    let x1 = (region.x + region.width as i32).min(right);
+    let y1 = (region.y + region.height as i32).min(bottom);
+    if x1 <= x0 || y1 <= y0 {
+        return Err(OFF_SCREEN.into());
     }
-    monitor.capture_region(x, y, width, height).map_err(err)
+    let captured = ScreenRect { x: x0, y: y0, width: (x1 - x0) as u32, height: (y1 - y0) as u32 };
+    let image = monitor
+        .capture_region((x0 - left) as u32, (y0 - top) as u32, captured.width, captured.height)
+        .map_err(err)?;
+    Ok((image, captured))
+}
+
+/// Windows the user can pick, topmost first. xcap leaves out our own windows; the sample chat
+/// is the one of ours worth picking, and it's always on top, so it goes first.
+fn pickable_windows(app: &AppHandle) -> Vec<PickableWindow> {
+    // Following a window needs Windows APIs (see target.rs).
+    if cfg!(not(windows)) {
+        return Vec::new();
+    }
+    let mut windows = Vec::new();
+    if let Some(id) = app.get_webview_window(DEMO).as_ref().and_then(window_id) {
+        if let WindowState::Shown { rect } = target::window_state(id) {
+            windows.push(PickableWindow { id, title: DEMO_TITLE.into(), app: "Overlingo".into(), rect });
+        }
+    }
+    for window in CaptureWindow::all().unwrap_or_default() {
+        if window.is_minimized().unwrap_or(true) {
+            continue;
+        }
+        let (Ok(id), Ok(title), Ok(x), Ok(y), Ok(width), Ok(height)) =
+            (window.id(), window.title(), window.x(), window.y(), window.width(), window.height())
+        else {
+            continue;
+        };
+        if title.trim().is_empty() || width < MIN_PICKABLE || height < MIN_PICKABLE {
+            continue;
+        }
+        let app = window.app_name().unwrap_or_default();
+        windows.push(PickableWindow { id, title, app, rect: ScreenRect { x, y, width, height } });
+    }
+    windows
 }
 
 fn encode_jpeg(image: RgbaImage) -> Result<Vec<u8>, String> {
@@ -92,18 +184,24 @@ fn close_selectors(app: &AppHandle) {
 }
 
 /// Freezes every monitor into a screenshot and opens a selector window over each one, where
-/// the user drags out the region to translate. The result arrives as a `region-selected` event.
+/// the user picks a window or drags out a region. The result arrives as a `region-selected`
+/// event.
 #[tauri::command]
-async fn start_region_select(app: AppHandle, shots: State<'_, SelectorShots>) -> Result<(), String> {
+async fn start_region_select(
+    app: AppHandle,
+    shots: State<'_, SelectorShots>,
+    windows: State<'_, SelectorWindows>,
+) -> Result<(), String> {
     close_selectors(&app);
     let monitors = app.available_monitors().map_err(err)?;
-    // Screenshots first, so the selector windows themselves aren't in them.
+    // Screenshots and the window list first, so the selector windows themselves aren't in them.
     let mut taken = HashMap::new();
     for (index, monitor) in monitors.iter().enumerate() {
-        let shot = capture(monitor_rect(monitor))?;
+        let (shot, _) = capture(monitor_rect(monitor))?;
         taken.insert(format!("{SELECTOR_PREFIX}{index}"), encode_jpeg(shot)?);
     }
     *shots.0.lock().map_err(err)? = taken;
+    *windows.0.lock().map_err(err)? = pickable_windows(&app);
 
     for (index, monitor) in monitors.iter().enumerate() {
         let window = WebviewWindowBuilder::new(&app, format!("{SELECTOR_PREFIX}{index}"), WebviewUrl::App("selector.html".into()))
@@ -133,19 +231,35 @@ fn selector_shot(window: Window, shots: State<'_, SelectorShots>) -> Result<Resp
     Ok(Response::new(bytes))
 }
 
+/// The windows the selectors can highlight and pick, topmost first.
+#[tauri::command]
+fn selector_windows(windows: State<'_, SelectorWindows>) -> Result<Vec<PickableWindow>, String> {
+    Ok(windows.0.lock().map_err(err)?.clone())
+}
+
 // Commands that create or close windows are async: on Windows, doing that from a synchronous
 // command blocks the main thread the window needs, and everything deadlocks.
 
-/// Closes the selector windows and tells the main window what was picked (`null` when cancelled).
+/// Closes the selector windows and tells the main window what was picked (`null` when
+/// cancelled). `window` is the id of the window the region belongs to, when there is one.
 #[tauri::command]
 async fn finish_region_select(
     app: AppHandle,
     region: Option<ScreenRect>,
+    window: Option<u32>,
     shots: State<'_, SelectorShots>,
+    windows: State<'_, SelectorWindows>,
 ) -> Result<(), String> {
     shots.0.lock().map_err(err)?.clear();
+    let picked = {
+        let mut windows = windows.0.lock().map_err(err)?;
+        let picked = window.and_then(|id| windows.iter().find(|w| w.id == id).cloned());
+        windows.clear();
+        picked
+    };
     close_selectors(&app);
-    app.emit_to(MAIN, "region-selected", region).map_err(err)?;
+    let choice = region.map(|region| RegionChoice { region, window: picked });
+    app.emit_to(MAIN, "region-selected", choice).map_err(err)?;
     if let Some(main) = app.get_webview_window(MAIN) {
         let _ = main.unminimize();
         let _ = main.set_focus();
@@ -154,18 +268,28 @@ async fn finish_region_select(
 }
 
 /// Captures `region` after waiting `wait_ms`, so the frontend paces capture without timers
-/// (which are throttled while its window is minimized). Returns the width and height as
-/// little-endian u32s, followed by RGBA pixels.
+/// (which are throttled while its window is minimized). With `window`, the id of the window
+/// being followed, it also measures how much of the region other apps cover. Returns the
+/// width, height and covered percentage as little-endian u32s, followed by RGBA pixels.
 #[tauri::command]
-async fn capture_region(region: ScreenRect, wait_ms: u64) -> Result<Response, String> {
+async fn capture_region(
+    app: AppHandle,
+    region: ScreenRect,
+    wait_ms: u64,
+    window: Option<u32>,
+    main_id: State<'_, MainWindowId>,
+) -> Result<Response, String> {
+    let main = *main_id.0.get_or_init(|| app.get_webview_window(MAIN).as_ref().and_then(window_id));
     tauri::async_runtime::spawn_blocking(move || {
         if wait_ms > 0 {
             thread::sleep(Duration::from_millis(wait_ms));
         }
-        let image = capture(region)?;
-        let mut bytes = Vec::with_capacity(8 + image.as_raw().len());
+        let (image, captured) = capture(region)?;
+        let covered = window.map_or(0, |id| (target::covered_share(id, captured, main) * 100.0).round() as u32);
+        let mut bytes = Vec::with_capacity(12 + image.as_raw().len());
         bytes.extend_from_slice(&image.width().to_le_bytes());
         bytes.extend_from_slice(&image.height().to_le_bytes());
+        bytes.extend_from_slice(&covered.to_le_bytes());
         bytes.extend_from_slice(image.as_raw());
         Ok(Response::new(bytes))
     })
@@ -173,11 +297,26 @@ async fn capture_region(region: ScreenRect, wait_ms: u64) -> Result<Response, St
     .map_err(err)?
 }
 
+/// Where window `id` is after waiting `wait_ms`, paced natively like `capture_region`.
+#[tauri::command]
+async fn window_state(id: u32, wait_ms: u64) -> Result<WindowState, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if wait_ms > 0 {
+            thread::sleep(Duration::from_millis(wait_ms));
+        }
+        target::window_state(id)
+    })
+    .await
+    .map_err(err)
+}
+
 /// Shows the overlay over the monitor that holds `region`: transparent, always on top,
 /// click-through, and excluded from screen capture so translations never feed back into OCR.
+/// Returns the monitor's rect, which the overlay now covers.
 #[tauri::command]
-async fn show_overlay(app: AppHandle, region: ScreenRect) -> Result<(), String> {
+async fn show_overlay(app: AppHandle, region: ScreenRect) -> Result<ScreenRect, String> {
     let monitor = monitor_containing(&app, region)?;
+    let area = monitor_rect(&monitor);
     let window = match app.get_webview_window(OVERLAY) {
         Some(window) => window,
         None => WebviewWindowBuilder::new(&app, OVERLAY, WebviewUrl::App("overlay.html".into()))
@@ -197,14 +336,14 @@ async fn show_overlay(app: AppHandle, region: ScreenRect) -> Result<(), String> 
             .build()
             .map_err(err)?,
     };
-    cover(&window, monitor_rect(&monitor))?;
+    cover(&window, area)?;
     window.set_ignore_cursor_events(true).map_err(err)?;
     window.show().map_err(err)?;
     // Raise it above other always-on-top windows, such as the sample chat. Setting the same
     // value again would be a no-op, so it's toggled.
     window.set_always_on_top(false).map_err(err)?;
     window.set_always_on_top(true).map_err(err)?;
-    Ok(())
+    Ok(area)
 }
 
 #[tauri::command]
@@ -215,22 +354,23 @@ async fn hide_overlay(app: AppHandle) {
 }
 
 /// Opens the sample chat in its own window, so the overlay can be tried without a messenger.
+/// Returns its id, so it's followed like any window the user picks.
 #[tauri::command]
-async fn open_demo(app: AppHandle) -> Result<(), String> {
+async fn open_demo(app: AppHandle) -> Result<Option<u32>, String> {
     if let Some(window) = app.get_webview_window(DEMO) {
         window.set_focus().map_err(err)?;
-        return Ok(());
+        return Ok(window_id(&window));
     }
-    // Always on top: the capture reads whatever is on screen there, and the sample has to be it.
-    WebviewWindowBuilder::new(&app, DEMO, WebviewUrl::App("demo.html".into()))
-        .title("Overlingo 샘플 채팅")
+    // Always on top, so nothing the user has open covers it.
+    let window = WebviewWindowBuilder::new(&app, DEMO, WebviewUrl::App("demo.html".into()))
+        .title(DEMO_TITLE)
         .inner_size(1280.0, 720.0)
         .center()
         .resizable(false)
         .always_on_top(true)
         .build()
         .map_err(err)?;
-    Ok(())
+    Ok(window_id(&window))
 }
 
 #[tauri::command]
@@ -245,11 +385,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(SelectorShots::default())
+        .manage(SelectorWindows::default())
+        .manage(MainWindowId::default())
         .invoke_handler(tauri::generate_handler![
             start_region_select,
             selector_shot,
+            selector_windows,
             finish_region_select,
             capture_region,
+            window_state,
             show_overlay,
             hide_overlay,
             open_demo,

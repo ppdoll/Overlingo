@@ -21,18 +21,19 @@ export function RegionSelect({ controller }: { controller: OverlingoController }
     if (!isDesktop) void openPip(controller);
   };
 
-  const sourceLabel = ui.demo ? '샘플 화면' : isDesktop ? '지정한 영역' : '화면 공유 중';
+  const sourceLabel = ui.demo ? '샘플 화면' : isDesktop ? (ui.targetWindow?.title ?? '지정한 영역') : '화면 공유 중';
   const screen = ui.screenRegion;
+  const follows = isDesktop && ui.targetWindow ? '창을 옮기거나 크기를 바꿔도 따라가요 · ' : '';
   return (
     <main className="card stack">
       <div className="row">
-        <span className="chip success">
+        <span className="chip success" title={sourceLabel}>
           <IconScreenShare size={14} />
-          {sourceLabel}
+          <span className="chip-text">{sourceLabel}</span>
         </span>
         <span className="muted small">
           {isDesktop
-            ? screen && `${screen.width} × ${screen.height} 픽셀 · 맞으면 번역을 시작하세요`
+            ? screen && `${screen.width} × ${screen.height} 픽셀 · ${follows}맞으면 번역을 시작하세요`
             : '번역할 부분을 드래그해서 지정하세요'}
         </span>
         <button className="push" onClick={() => controller.stopSharing()}>

@@ -24,13 +24,22 @@ export interface OverlayState {
   subtitle: string | null;
 }
 
-export function buildOverlayState(live: LiveState, settings: Settings, region: ScreenRect, stale: boolean): OverlayState {
+/**
+ * `stale`: the chat moved since it was last read. `hidden`: the followed window is minimized or
+ * covered, so its translations shouldn't float over whatever is there now.
+ */
+export function buildOverlayState(
+  live: LiveState,
+  settings: Settings,
+  region: ScreenRect,
+  { stale, hidden }: { stale: boolean; hidden: boolean },
+): OverlayState {
   const { layout } = live;
   return {
     region,
     mode: settings.mode,
     fontSize: settings.pipFontSize,
-    visible: live.status === 'running',
+    visible: live.status === 'running' && !hidden,
     stale,
     chat:
       settings.mode === 'chat' && layout

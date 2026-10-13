@@ -2886,7 +2886,7 @@ dependencies = [
 
 [[package]]
 name = "overlingo"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "image",
  "serde",
@@ -2894,6 +2894,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "windows",
  "xcap",
 ]
 

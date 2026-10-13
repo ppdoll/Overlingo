@@ -1,6 +1,6 @@
 [package]
 name = "overlingo"
-version = "0.1.0"
+version = "0.2.0"
 description = "화면 속 채팅과 자막을 실시간으로 번역하는 데스크톱 앱"
 authors = ["ppdoll"]
 license = ""
@@ -22,3 +22,6 @@ tauri = { version = "2.12.3", features = [] }
 xcap = "0.9.8"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 tauri-plugin-opener = "2.7.1"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging"] }

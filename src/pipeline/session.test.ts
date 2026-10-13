@@ -80,6 +80,7 @@ describe('TranslationSession in chat mode', () => {
     expect(store.get().layout?.units).toEqual([
       {
         source: 'I really thought we were going to lose that one.',
+        sender: null,
         box: bubble,
         align: 'left',
         translated: 'T(I really thought we were going to lose that one.)',
@@ -104,6 +105,21 @@ describe('TranslationSession in chat mode', () => {
     const { engine, frame } = setup('chat', ['Game chat - Sam\ngg, that was close lol\nwait for me, brb'], bubbles);
     await frame();
     expect(engine.calls).toEqual([['gg, that was close lol', 'wait for me, brb']]);
+  });
+
+  it('translates group chat messages without the sender names', async () => {
+    const bubbles = [
+      { x: 0, y: 5, w: 250, h: 55 },
+      { x: 0, y: 65, w: 250, h: 55 },
+    ];
+    const { store, engine, frame } = setup('chat', ['Kenji\nnext round?\nKenji\none more heal please'], bubbles);
+    await frame();
+    expect(engine.calls).toEqual([['next round?', 'one more heal please']]);
+    expect(store.get().layout?.units.map((u) => [u.sender, u.source, u.translated])).toEqual([
+      ['Kenji', 'next round?', 'T(next round?)'],
+      ['Kenji', 'one more heal please', 'T(one more heal please)'],
+    ]);
+    expect(store.get().lines.map((l) => l.sender)).toEqual(['Kenji', 'Kenji']);
   });
 
   it('re-reads a bubble that whole-image OCR skipped', async () => {

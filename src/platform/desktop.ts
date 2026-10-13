@@ -33,25 +33,59 @@ export interface RawImage {
   offset: number;
   width: number;
   height: number;
+  /** How much of the region (0..1) another app's window covers, when following a window. */
+  covered: number;
 }
+
+/** A window on screen, as the user picked it to translate. */
+export interface PickedWindow {
+  id: number;
+  title: string;
+  app: string;
+  rect: ScreenRect;
+}
+
+/** What the user picked: a region, and the window it's part of when they picked a window. */
+export interface RegionChoice {
+  region: ScreenRect;
+  window: PickedWindow | null;
+}
+
+/** A followed window right now. Hidden means minimized or on another virtual desktop. */
+export type WindowState = { state: 'shown'; rect: ScreenRect } | { state: 'hidden' } | { state: 'gone' };
 
 /** Opens a selector over every monitor; the choice arrives through `onRegionSelected`. */
 export function startRegionSelect(): Promise<void> {
   return invoke('start_region_select');
 }
 
-export function onRegionSelected(handler: (region: ScreenRect | null) => void): Promise<UnlistenFn> {
-  return listen<ScreenRect | null>('region-selected', (event) => handler(event.payload));
+export function onRegionSelected(handler: (choice: RegionChoice | null) => void): Promise<UnlistenFn> {
+  return listen<RegionChoice | null>('region-selected', (event) => handler(event.payload));
 }
 
-/** Captures `region` after `waitMs`. The wait happens natively, so it isn't throttled. */
-export async function captureRegion(region: ScreenRect, waitMs: number): Promise<RawImage> {
-  const buffer = await invoke<ArrayBuffer>('capture_region', { region, waitMs });
-  const header = new DataView(buffer, 0, 8);
-  return { buffer, offset: 8, width: header.getUint32(0, true), height: header.getUint32(4, true) };
+/**
+ * Captures `region` after `waitMs`. The wait happens natively, so it isn't throttled. With
+ * `windowId`, also measures how much of the region other apps' windows cover.
+ */
+export async function captureRegion(region: ScreenRect, waitMs: number, windowId?: number): Promise<RawImage> {
+  const buffer = await invoke<ArrayBuffer>('capture_region', { region, waitMs, window: windowId ?? null });
+  const header = new DataView(buffer, 0, 12);
+  return {
+    buffer,
+    offset: 12,
+    width: header.getUint32(0, true),
+    height: header.getUint32(4, true),
+    covered: header.getUint32(8, true) / 100,
+  };
 }
 
-export function showOverlay(region: ScreenRect): Promise<void> {
+/** Where window `id` is after `waitMs`, waited natively like `captureRegion`. */
+export function windowState(id: number, waitMs: number): Promise<WindowState> {
+  return invoke('window_state', { id, waitMs });
+}
+
+/** Shows the overlay over the monitor holding `region` and returns that monitor's rect. */
+export function showOverlay(region: ScreenRect): Promise<ScreenRect> {
   return invoke('show_overlay', { region });
 }
 
@@ -68,27 +102,28 @@ export function onOverlayReady(handler: () => void): Promise<UnlistenFn> {
 }
 
 /**
- * Opens the sample chat window and returns where `part` of it (its chat panel or subtitle
- * line) is on screen. `onMove` gets the new position whenever the window moves or comes to
- * the front.
+ * Opens the sample chat window and returns `part` of it (its chat panel or subtitle line) as
+ * a region of a picked window, so it's followed like any other. `onFocus` is called when the
+ * window comes to the front: being always on top too, it then covers the overlay.
  */
-export async function openDemoWindow(part: NormRect, onMove: (region: ScreenRect) => void): Promise<ScreenRect> {
-  await invoke('open_demo');
+export async function openDemoWindow(part: NormRect, onFocus: () => void): Promise<RegionChoice> {
+  const id = await invoke<number | null>('open_demo');
   let demo: WebviewWindow | null = null;
   for (let attempt = 0; attempt < 50 && !demo; attempt++) {
     demo = await WebviewWindow.getByLabel('demo');
     if (!demo) await new Promise((resolve) => setTimeout(resolve, 100));
   }
   if (!demo) throw new Error('샘플 채팅 창을 열지 못했어요');
-  const window = demo;
   // Let the window settle into its final position first.
   await new Promise((resolve) => setTimeout(resolve, 600));
-  void window.onMoved(async () => onMove(await screenRectOf(window, part)));
-  // Focusing the always-on-top sample puts it over the overlay; reporting it re-raises the overlay.
-  void window.onFocusChanged(async ({ payload: focused }) => {
-    if (focused) onMove(await screenRectOf(window, part));
+  void demo.onFocusChanged(({ payload: focused }) => {
+    if (focused) onFocus();
   });
-  return screenRectOf(window, part);
+  const region = await screenRectOf(demo, part);
+  const state = id === null ? null : await windowState(id, 0);
+  const window =
+    id !== null && state?.state === 'shown' ? { id, title: await demo.title(), app: 'Overlingo', rect: state.rect } : null;
+  return { region, window };
 }
 
 /** Where `part` of a window's client area is on screen. The demo canvas fills it exactly. */

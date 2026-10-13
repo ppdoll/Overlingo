@@ -226,6 +226,14 @@ input[type='password'] {
   color: var(--success);
 }
 
+/* Window titles can be long. */
+.chip-text {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mode-cards {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -515,6 +523,19 @@ input[type='password'] {
 
 .history .pending {
   color: var(--text-muted);
+}
+
+/* The sender's name from a group chat bubble, kept apart from the translated message. */
+.history .sender,
+.bubble .sender {
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.aside-source .sender {
+  font-weight: 600;
+  margin-right: 6px;
 }
 
 .history .failed {

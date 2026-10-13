@@ -10,6 +10,8 @@ export interface FrameSource {
   onStats: (fps: number) => void;
   /** The region started changing, so anything drawn at the old positions is out of date. */
   onMotion: () => void;
+  /** The region settled back to how it looked when last read, so what's drawn is right again. */
+  onStill: () => void;
   onEnded: () => void;
   onError: (message: string) => void;
   setRegion(region: NormRect | null): void;

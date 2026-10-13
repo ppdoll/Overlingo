@@ -17,7 +17,10 @@ export function ChatAside({ layout }: { layout: ChatLayout | null }) {
           {layout.imageUrl && unit.box.w > 0 ? (
             <BubbleCrop url={layout.imageUrl} unit={unit} width={layout.width} height={layout.height} widest={widest} />
           ) : (
-            <p className="aside-source">{unit.source}</p>
+            <p className="aside-source">
+              {unit.sender && <span className="sender">{unit.sender}</span>}
+              {unit.source}
+            </p>
           )}
           <p className="aside-translation">
             {unit.translated ?? <span className="muted">{unit.failed ? '번역하지 못했어요' : '번역 중…'}</span>}
@@ -73,6 +76,7 @@ export function ChatBubbles({ lines, showOriginal }: { lines: LiveLine[]; showOr
     <ul className="bubbles">
       {lines.map((line, i) => (
         <li key={line.id} ref={i === lines.length - 1 ? endRef : undefined} className={`bubble ${line.align ?? 'left'}`}>
+          {line.sender && <p className="sender">{line.sender}</p>}
           <p>{line.translated ?? (line.failed ? line.source : '…')}</p>
           {showOriginal && line.translated && <p className="source">{line.source}</p>}
         </li>
